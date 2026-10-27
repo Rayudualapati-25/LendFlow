@@ -76,6 +76,7 @@ def book_loan(
         ApplicationStatus.DISBURSED,
         actor=underwriter,
         action="loan.disbursed",
+        now=now,
         details={"idempotency_key": idempotency_key},
     )
     principal, rate, tenure = (
@@ -168,9 +169,17 @@ def record_repayment(
         application,
         action="repayment.received",
         actor=user,
+        at=now,
         details={"installment_number": installment_number, "amount": str(target.amount_due)},
     )
     if all(row.status == InstallmentStatus.PAID for row in installments):
-        move(session, application, ApplicationStatus.CLOSED, actor=user, action="loan.closed")
+        move(
+            session,
+            application,
+            ApplicationStatus.CLOSED,
+            actor=user,
+            action="loan.closed",
+            now=now,
+        )
     session.commit()
     return loan

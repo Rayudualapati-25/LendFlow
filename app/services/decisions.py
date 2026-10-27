@@ -58,6 +58,7 @@ def decide(
         ApplicationStatus(outcome.value),
         actor=underwriter,
         action=f"application.{outcome.value}",
+        now=now,
         details={"reason_codes": reason_codes},
     )
     decision = Decision(
