@@ -34,6 +34,9 @@ target-version = "py311"
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "B", "UP", "S", "SIM", "RUF"]
 
+[tool.ruff.lint.isort]
+known-first-party = ["app", "tests"]
+
 [tool.ruff.lint.per-file-ignores]
 # Tests use bare asserts and throwaway credentials by design.
 "tests/**" = ["S101", "S105", "S106"]
