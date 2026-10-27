@@ -5,9 +5,10 @@ cannot show one transaction waiting for another) and delete them afterwards.
 """
 
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from queue import Queue
 from threading import Thread
 
 import pytest
@@ -57,20 +58,54 @@ def committed(engine: Engine, request: pytest.FixtureRequest) -> Iterator[Commit
             session.commit()
 
 
-def _wait_until_a_transaction_waits_for_a_lock(engine: Engine, timeout: float = 5.0) -> None:
-    deadline = time.monotonic() + timeout
+def _backend_pid(session: Session) -> int:
+    pid: int = session.execute(text("SELECT pg_backend_pid()")).scalar_one()
+    return pid
+
+
+def _wait_until_blocked(engine: Engine, *, waiter: int, holder: int) -> None:
+    """Wait until backend `waiter` is blocked by a lock that backend `holder` holds.
+
+    Checking the exact pair (not just "someone is waiting") means a test cannot pass early
+    because an unrelated backend, such as autovacuum, happened to be waiting on something.
+    """
+    deadline = time.monotonic() + 10
     with engine.connect() as connection:
         while time.monotonic() < deadline:
-            waiting = connection.execute(
+            blocked = connection.execute(
                 text(
-                    "SELECT count(*) FROM pg_stat_activity "
-                    "WHERE wait_event_type = 'Lock' AND datname = current_database()"
-                )
+                    "SELECT CAST(:holder AS integer)"
+                    " = ANY(pg_blocking_pids(CAST(:waiter AS integer)))"
+                ),
+                {"holder": holder, "waiter": waiter},
             ).scalar_one()
-            if waiting:
+            if blocked:
                 return
             time.sleep(0.01)
-    raise AssertionError("the second transaction never waited for a lock")
+    raise AssertionError(f"backend {waiter} was never blocked by backend {holder}")
+
+
+class _Racer(Thread):
+    """Runs `work` in its own session and connection, publishing its backend pid first.
+
+    Any unexpected exception becomes the outcome, so a failing assertion shows it rather
+    than losing it inside the thread.
+    """
+
+    def __init__(self, engine: Engine, work: Callable[[Session], str]) -> None:
+        super().__init__()
+        self.engine = engine
+        self.work = work
+        self.pid: Queue[int] = Queue()
+        self.outcome = "did not finish"
+
+    def run(self) -> None:
+        try:
+            with Session(self.engine, expire_on_commit=False) as session:
+                self.pid.put(_backend_pid(session))
+                self.outcome = self.work(session)
+        except Exception as error:
+            self.outcome = f"unexpected {error!r}"
 
 
 def _loans_for(engine: Engine, application_id: int) -> int:
@@ -86,22 +121,20 @@ def test_a_second_reviewer_waits_for_the_first_and_then_gets_409(
 ) -> None:
     application_id = committed.application_ids[0]
     first_id, second_id = committed.underwriter_ids
-    outcome: list[str] = []
 
-    def second_reviewer() -> None:
-        with Session(engine, expire_on_commit=False) as session:
-            underwriter = session.get_one(User, second_id)
-            try:
-                applications.start_review(session, underwriter, application_id, now=NOW)
-                outcome.append("reviewed")
-            except IllegalTransition:
-                outcome.append("illegal transition")
+    def second_reviewer(session: Session) -> str:
+        underwriter = session.get_one(User, second_id)
+        try:
+            applications.start_review(session, underwriter, application_id, now=NOW)
+        except IllegalTransition:
+            return "illegal transition"
+        return "reviewed"
 
     with Session(engine, expire_on_commit=False) as first:
         application = lock_application(first, application_id)
-        racer = Thread(target=second_reviewer)
+        racer = _Racer(engine, second_reviewer)
         racer.start()
-        _wait_until_a_transaction_waits_for_a_lock(engine)
+        _wait_until_blocked(engine, waiter=racer.pid.get(timeout=10), holder=_backend_pid(first))
 
         move(
             first,
@@ -114,7 +147,7 @@ def test_a_second_reviewer_waits_for_the_first_and_then_gets_409(
         first.commit()
         racer.join(timeout=10)
 
-    assert outcome == ["illegal transition"]
+    assert racer.outcome == "illegal transition"
     with Session(engine) as session:
         status = session.get_one(Application, application_id).status
         audit_entries = session.scalar(
@@ -132,22 +165,20 @@ def test_a_retry_racing_the_first_disbursal_waits_and_replays_it(
 ) -> None:
     application_id = committed.application_ids[0]
     first_id, second_id = committed.underwriter_ids
-    retries: list[tuple[int, bool]] = []
 
-    def retry() -> None:
-        with Session(engine, expire_on_commit=False) as session:
-            underwriter = session.get_one(User, second_id)
-            loan, replayed = loans.disburse(
-                session, underwriter, application_id, idempotency_key="race", now=NOW
-            )
-            retries.append((loan.id, replayed))
+    def retry(session: Session) -> str:
+        underwriter = session.get_one(User, second_id)
+        loan, replayed = loans.disburse(
+            session, underwriter, application_id, idempotency_key="race", now=NOW
+        )
+        return f"loan {loan.id}, replayed={replayed}"
 
     with Session(engine, expire_on_commit=False) as first:
         # Hold the row, as a slow first request would, while the retry arrives.
         lock_application(first, application_id)
-        racer = Thread(target=retry)
+        racer = _Racer(engine, retry)
         racer.start()
-        _wait_until_a_transaction_waits_for_a_lock(engine)
+        _wait_until_blocked(engine, waiter=racer.pid.get(timeout=10), holder=_backend_pid(first))
 
         loan, replayed = loans.disburse(
             first, first.get_one(User, first_id), application_id, idempotency_key="race", now=NOW
@@ -155,7 +186,7 @@ def test_a_retry_racing_the_first_disbursal_waits_and_replays_it(
         racer.join(timeout=10)
 
     assert replayed is False
-    assert retries == [(loan.id, True)]
+    assert racer.outcome == f"loan {loan.id}, replayed=True"
     assert _loans_for(engine, application_id) == 1
 
 
@@ -165,35 +196,34 @@ def test_one_key_on_two_applications_at_once_books_only_one_loan(
 ) -> None:
     first_application, second_application = committed.application_ids
     first_id, second_id = committed.underwriter_ids
-    outcome: list[str] = []
 
-    def second_disbursal() -> None:
-        with Session(engine, expire_on_commit=False) as session:
-            underwriter = session.get_one(User, second_id)
-            try:
-                loans.disburse(
-                    session, underwriter, second_application, idempotency_key="shared", now=NOW
-                )
-                outcome.append("booked")
-            except IdempotencyKeyReused:
-                outcome.append("key reused")
+    def second_disbursal(session: Session) -> str:
+        underwriter = session.get_one(User, second_id)
+        try:
+            loans.disburse(
+                session, underwriter, second_application, idempotency_key="shared", now=NOW
+            )
+        except IdempotencyKeyReused:
+            return "key reused"
+        return "booked"
 
     with Session(engine, expire_on_commit=False) as first:
-        # Book the first loan but leave its transaction open, so the key is not yet visible
-        # to the second request's lookup; only the unique index can stop it.
+        # Book the first loan but leave its transaction open: the key is not yet visible to
+        # the second request's lookup, so only the unique index can stop it.
         application = lock_application(first, first_application)
         loans.book_loan(
             first, application, first.get_one(User, first_id), idempotency_key="shared", now=NOW
         )
         first.flush()
-        racer = Thread(target=second_disbursal)
+        racer = _Racer(engine, second_disbursal)
         racer.start()
-        _wait_until_a_transaction_waits_for_a_lock(engine)
+        # The second request is now waiting on the unique index for the first to finish.
+        _wait_until_blocked(engine, waiter=racer.pid.get(timeout=10), holder=_backend_pid(first))
 
         first.commit()
         racer.join(timeout=10)
 
-    assert outcome == ["key reused"]
+    assert racer.outcome == "key reused"
     assert _loans_for(engine, first_application) == 1
     assert _loans_for(engine, second_application) == 0
     with Session(engine) as session:
