@@ -3,10 +3,17 @@ from typing import Annotated
 from fastapi import APIRouter, Query, status
 
 from app.db import SessionDep
-from app.dependencies import ApplicantUser, CurrentUser, UnderwriterUser
+from app.dependencies import ApplicantUser, CurrentUser, NowDep, UnderwriterUser
 from app.domain.enums import ApplicationStatus
-from app.schemas import ApplicationOut, ApplicationRequest, AuditEntryOut, Error
-from app.services import applications
+from app.schemas import (
+    ApplicationOut,
+    ApplicationRequest,
+    AuditEntryOut,
+    DecisionOut,
+    DecisionRequest,
+    Error,
+)
+from app.services import applications, decisions
 
 router = APIRouter(prefix="/applications", tags=["applications"])
 
@@ -65,3 +72,31 @@ def read_audit_trail(
         AuditEntryOut.model_validate(entry)
         for entry in applications.audit_trail(session, application_id)
     ]
+
+
+@router.post(
+    "/{application_id}/decision",
+    status_code=status.HTTP_201_CREATED,
+    responses={404: {"model": Error}, 409: {"model": Error}},
+)
+def decide(
+    application_id: int,
+    body: DecisionRequest,
+    underwriter: UnderwriterUser,
+    session: SessionDep,
+    now: NowDep,
+) -> DecisionOut:
+    """Run the eligibility rules and approve or reject (under_review -> approved | rejected).
+
+    Every decision carries reason codes and the inputs the rules saw.
+    """
+    decision = decisions.decide(
+        session, underwriter, application_id, credit_score=body.credit_score, now=now
+    )
+    return DecisionOut.model_validate(decision)
+
+
+@router.get("/{application_id}/decision", responses={404: {"model": Error}})
+def read_decision(application_id: int, user: CurrentUser, session: SessionDep) -> DecisionOut:
+    """The decision and its reasons, for the applicant who applied or any underwriter."""
+    return DecisionOut.model_validate(decisions.get_visible_to(session, user, application_id))

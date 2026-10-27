@@ -3,10 +3,10 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.config import Settings
+from app.db import make_engine
 from app.errors import DomainError
 from app.routers import applicants, applications, auth, health, products
 
@@ -20,7 +20,7 @@ async def handle_domain_error(_: Request, error: DomainError) -> JSONResponse:
 def create_app(settings: Settings | None = None) -> FastAPI:
     """Build the application. Tests pass their own settings; production reads the environment."""
     settings = settings or Settings()  # type: ignore[call-arg]  # values come from the env
-    engine = create_engine(settings.database_url, pool_pre_ping=True)
+    engine = make_engine(settings.database_url)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:

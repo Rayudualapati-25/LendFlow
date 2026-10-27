@@ -43,3 +43,8 @@ class ApplicationNotFound(DomainError):
 class IllegalTransition(DomainError):
     status_code = 409
     code = "illegal_transition"
+
+
+class DecisionNotFound(DomainError):
+    status_code = 404
+    code = "decision_not_found"

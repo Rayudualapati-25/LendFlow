@@ -5,13 +5,14 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
-from sqlalchemy import Engine, create_engine, make_url, text
+from sqlalchemy import Engine, make_url, text
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.db import get_session
+from app.db import get_session, make_engine
 from app.main import create_app
 
 # Tests need a real PostgreSQL: the reports, row locks and constraints are Postgres-specific.
@@ -40,7 +41,7 @@ def alembic_config() -> Config:
 @pytest.fixture(scope="session")
 def engine(alembic_config: Config) -> Iterator[Engine]:
     """Build the schema from an empty database with the real migrations, once per run."""
-    engine = create_engine(TEST_DATABASE_URL)
+    engine = make_engine(TEST_DATABASE_URL)
     with engine.begin() as connection:
         connection.execute(text("DROP SCHEMA public CASCADE"))
         connection.execute(text("CREATE SCHEMA public"))
@@ -76,8 +77,14 @@ def settings() -> Settings:
 
 
 @pytest.fixture
-def client(settings: Settings, db_session: Session) -> Iterator[TestClient]:
+def app(settings: Settings, db_session: Session) -> FastAPI:
+    """The application, wired to the test's rolled-back session. Tests may add overrides."""
     app = create_app(settings)
     app.dependency_overrides[get_session] = lambda: db_session
+    return app
+
+
+@pytest.fixture
+def client(app: FastAPI) -> Iterator[TestClient]:
     with TestClient(app) as test_client:
         yield test_client

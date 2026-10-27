@@ -404,3 +404,69 @@ when later work proves them right or wrong.
   the simplest thing to reason about.
 - **With hindsight.** Optimistic locking suits long-lived edits, such as a form left
   open in a browser, because it holds no lock while the user thinks.
+
+## Credit decisions
+
+### D36. The credit score arrives with the decision, from the underwriter
+
+- **Decision.** `POST /applications/{id}/decision` takes the bureau score (CIBIL or
+  similar) that the underwriter pulled. Applicants never supply a score.
+- **Alternative.** A credit-score field on the applicant's profile, or a live bureau
+  integration.
+- **Why.** A self-reported score cannot be trusted, and a bureau integration is out of
+  scope. In a manual process, pulling the report is the underwriter's step. The decision
+  stores the score it used.
+- **With hindsight.** In production a bureau client sits behind an interface, with a
+  fake in tests, and the endpoint takes no score at all.
+
+### D37. Every rule runs and every decision carries reason codes
+
+- **Decision.** Three rules run together: credit score at least 650, FOIR at most 50%,
+  and fewer than two active LendFlow loans. A rejection lists every failed rule in a
+  fixed order; an approval carries `ELIGIBLE`. A CHECK constraint (D12) means no decision
+  row can exist without a code, and each decision records the rules version it ran under.
+  Applicants can read their own decision and its reasons.
+- **Alternative.** Stop at the first failed rule, or reject with one generic message.
+- **Why.** The applicant learns everything to fix at once, and stable codes let a client
+  show its own wording. Indian lenders have long been expected to tell applicants the
+  main reasons for a rejection: RBI's Fair Practices Code for Lenders, extended to all
+  loan categories in 2007
+  ([circular](https://www.rbi.org.in/Scripts/NotificationUser.aspx?Id=3315)).
+- **With hindsight.** A real credit policy has more rules (age, employment,
+  loan-to-value for home and vehicle loans) and per-product thresholds. The stored rules
+  version is what makes changing them safe.
+
+### D38. "FOIR at most 50%" is compared exactly; the stored FOIR is rounded up
+
+- **Decision.** The rule compares `existing EMIs + new EMI <= income x 0.50` without
+  rounding. The FOIR stored and shown is rounded up to four places.
+- **Alternative.** Round the ratio first and compare the rounded value.
+- **Why.** Rounding before comparing would let 50.004% pass as 50.00%. Rounding the
+  shown value up means anything refused for FOIR shows at least 0.5001, so a FOIR of
+  0.5000 never appears next to a FOIR refusal. A property test checks that the shown FOIR
+  exceeds 0.50 exactly when the FOIR rule failed.
+- **With hindsight.** No change so far.
+
+### D39. Existing obligations include the applicant's other LendFlow loans
+
+- **Decision.** Existing EMIs are the declared EMIs to other lenders plus the EMIs of the
+  applicant's LendFlow loans that are approved or disbursed; approved ones count because
+  the lender is already committed to them. A decision locks the applicant's row as well
+  as the application's.
+- **Alternative.** Count only the declared EMIs, or only disbursed loans.
+- **Why.** An applicant with two approvals in flight must not look debt-free to a third
+  decision. Without the applicant lock, two of their applications decided at the same
+  moment could both pass the active-loan limit.
+- **With hindsight.** A bureau report lists loans across all lenders, which would
+  replace the self-declared figure.
+
+### D40. Time is an input
+
+- **Decision.** Services take `now` as a parameter; the API supplies it from a
+  `current_time` dependency that tests override. Database connections use the UTC time
+  zone, so timestamps come back in UTC whatever the server's setting.
+- **Alternative.** Call `datetime.now()` inside services and freeze time in tests with a
+  library such as freezegun.
+- **Why.** Explicit inputs keep services deterministic, and the seed script can backdate
+  decisions and disbursals without patching anything.
+- **With hindsight.** No change so far.

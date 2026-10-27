@@ -1,6 +1,7 @@
 """Dependencies shared by the routers: settings, the signed-in user and role checks."""
 
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Annotated
 
 import jwt
@@ -22,6 +23,14 @@ def get_settings(request: Request) -> Settings:
 
 
 SettingsDep = Annotated[Settings, Depends(get_settings)]
+
+
+def current_time() -> datetime:
+    """Now, in UTC. A dependency so that tests can freeze the clock."""
+    return datetime.now(UTC)
+
+
+NowDep = Annotated[datetime, Depends(current_time)]
 
 
 def get_current_user(

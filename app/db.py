@@ -3,8 +3,16 @@ from typing import Annotated
 
 import psycopg
 from fastapi import Depends, Request
+from sqlalchemy import Engine, create_engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
+
+
+def make_engine(database_url: str) -> Engine:
+    """An engine whose connections use UTC, so timestamps never depend on server settings."""
+    return create_engine(
+        database_url, pool_pre_ping=True, connect_args={"options": "-c timezone=UTC"}
+    )
 
 
 def get_session(request: Request) -> Iterator[Session]:

@@ -21,7 +21,7 @@ from pydantic import (
 )
 
 from app.domain.emi import PAISA, calculate_emi
-from app.domain.enums import ApplicationStatus, Product, Role
+from app.domain.enums import ApplicationStatus, DecisionOutcome, Product, Role
 
 
 def normalize_email(email: str) -> str:
@@ -133,3 +133,27 @@ class AuditEntryOut(ResponseBody):
     to_status: str | None
     details: dict[str, Any]
     created_at: datetime
+
+
+# Decisions
+
+
+class DecisionRequest(RequestBody):
+    credit_score: int = Field(
+        ge=300, le=900, description="The bureau score (such as CIBIL) pulled for the applicant."
+    )
+
+
+class DecisionOut(ResponseBody):
+    application_id: int
+    outcome: DecisionOutcome
+    reason_codes: list[str]
+    credit_score: int
+    monthly_income: Decimal
+    existing_emi: Decimal
+    proposed_emi: Decimal
+    foir: Decimal
+    active_loans: int
+    rules_version: str
+    decided_by_id: int
+    decided_at: datetime
