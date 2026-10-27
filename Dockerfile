@@ -22,10 +22,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 COPY --from=build /opt/venv /opt/venv
 
 WORKDIR /app
+COPY alembic.ini ./
+COPY migrations ./migrations
+COPY scripts/start.sh ./scripts/start.sh
 COPY app ./app
 
 RUN useradd --system --uid 10001 lendflow
 USER lendflow
 
 EXPOSE 8000
-CMD ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "scripts/start.sh"]
