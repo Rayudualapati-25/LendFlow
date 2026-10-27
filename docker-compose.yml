@@ -20,6 +20,8 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://lendflow:lendflow@db:5432/lendflow
       JWT_SECRET: local-development-only-secret-change-me
+      # Loads a year of demo data on first start (see README). Never set this in production.
+      SEED_DEMO_DATA: "true"
     ports:
       - "8000:8000"
     depends_on:
