@@ -184,6 +184,23 @@ class Loan(Base):
         back_populates="loan", order_by="Repayment.installment_number"
     )
 
+    @property
+    def status(self) -> ApplicationStatus:
+        """A loan is `disbursed` until its last instalment is paid, then `closed` (D9)."""
+        return self.application.status
+
+    @property
+    def outstanding_principal(self) -> Decimal:
+        repaid = sum(
+            (
+                row.principal_component
+                for row in self.repayments
+                if row.status == InstallmentStatus.PAID
+            ),
+            Decimal(0),
+        )
+        return self.principal - repaid
+
 
 class Repayment(Base):
     """One instalment of a loan's EMI schedule, and whether it has been paid."""
