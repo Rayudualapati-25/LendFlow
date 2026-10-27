@@ -1,0 +1,38 @@
+# Local stack: the API on http://localhost:8000 and PostgreSQL 16.
+# The credentials below are for local development only.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: lendflow
+      POSTGRES_PASSWORD: lendflow
+      POSTGRES_DB: lendflow
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lendflow -d lendflow"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  api:
+    build: .
+    environment:
+      DATABASE_URL: postgresql+psycopg://lendflow:lendflow@db:5432/lendflow
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2)
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  pgdata:
