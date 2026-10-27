@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import Engine, event, select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
@@ -231,3 +231,45 @@ def test_strangers_cannot_pay_into_a_loan(
     )
 
     assert response.status_code == 404
+
+
+def test_listing_loans_takes_the_same_number_of_queries_however_many_there_are(
+    client: TestClient,
+    db_session: Session,
+    engine: Engine,
+    settings: Settings,
+    underwriter: User,
+) -> None:
+    headers = auth_headers(underwriter, settings)
+
+    def book(count: int) -> None:
+        for number in range(count):
+            application = make_application(db_session, status=ApplicationStatus.APPROVED)
+            loans.disburse(
+                db_session,
+                underwriter,
+                application.id,
+                idempotency_key=f"n-plus-one-{application.id}-{number}",
+                now=DISBURSED_AT,
+            )
+        db_session.expire_all()  # make the API load everything afresh, as a new request would
+
+    def queries_to_list_loans() -> int:
+        statements: list[str] = []
+
+        def record(*args: object) -> None:
+            statements.append(str(args[2]))
+
+        event.listen(engine, "before_cursor_execute", record)
+        try:
+            assert client.get("/loans", headers=headers).status_code == 200
+        finally:
+            event.remove(engine, "before_cursor_execute", record)
+        return len(statements)
+
+    book(2)
+    with_two = queries_to_list_loans()
+    book(4)
+    with_six = queries_to_list_loans()
+
+    assert with_six == with_two
