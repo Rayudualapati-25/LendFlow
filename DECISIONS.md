@@ -270,3 +270,46 @@ when later work proves them right or wrong.
 - **With hindsight.** The HTTP status sits on the exception class, a small leak of HTTP
   into the service layer. A mapping table in the API layer would be purer but is more
   code for no practical gain at this size.
+
+## Business rules
+
+### D25. Business rules are pure functions in `app/domain`
+
+- **Decision.** The EMI maths, and later the eligibility rules and state machine, live in
+  `app/domain` as plain functions on plain values: no database, no HTTP, no clock. The
+  services in `app/services` load data, call them and save the results.
+- **Alternative.** Rules inside the ORM models or the route handlers.
+- **Why.** Pure rules are unit-tested in microseconds without a database, can be reused
+  from scripts, and can be read in isolation.
+- **With hindsight.** No change so far.
+
+### D26. EMI rounded to the paisa; interest on the real balance; last instalment adjusts
+
+- **Decision.** The EMI uses the standard reducing-balance formula, rounded half-up to
+  the paisa. Each month, interest is the outstanding balance times the monthly rate
+  (rounded to the paisa) and the rest of the EMI repays principal. The last instalment
+  repays whatever is left. Due dates count from the disbursal date, clamped to short
+  months (disbursed on 31 January: due 28 February, 31 March, 30 April).
+- **Alternative.** Round the EMI up to the whole rupee, as many lenders do, or derive
+  every row from the exact closed-form balance so rounding cannot accumulate.
+- **Why.** Paisa precision matches what published EMI calculators show (Rs 10 lakh at
+  10% for 60 months is Rs 21,247.04), and every interest figure stays explainable as
+  "rate times what you owed".
+- **With hindsight.** Property-based testing showed that the rounding drift compounds.
+  For Rs 1,000 at 17.71% over 335 months it exceeds a whole EMI, so the loan would be
+  repaid before its last month. The schedule now rejects such terms with a clear error. A
+  second property test shows that any term up to 15% p.a. on Rs 10,000 or more over up to
+  360 months schedules correctly; at that worst corner the final instalment differs from
+  the EMI by at most Rs 37.84.
+
+### D27. Property-based tests for money arithmetic
+
+- **Decision.** Hypothesis generates (principal, rate, tenure) combinations and checks
+  invariants: principal repaid adds up exactly to the amount lent, the balance ends at
+  zero, every instalment is principal plus interest, all but the last equal the EMI, and
+  the balance never increases.
+- **Alternative.** Hand-picked examples only.
+- **Why.** Examples check what the author thought of; invariants over generated inputs
+  check what they did not. That is how the drift case in D26 was found.
+- **With hindsight.** No change. Hand-checked examples are kept as well, because an
+  invariant cannot tell you the EMI itself is right.
