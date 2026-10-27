@@ -11,7 +11,7 @@ In progress. This README is the build plan; items are ticked as they land.
 
 ## MVP scope
 
-- [ ] Schema: applicants, applications, decisions, loans, repayments, audit_log
+- [x] Schema: applicants, applications, decisions, loans, repayments, audit_log
       (SQLAlchemy 2 + Alembic migrations, indexes on status and dates)
 - [ ] JWT sign-in with two roles: applicant and underwriter
 - [ ] Eligibility rules (credit score, FOIR / EMI-to-income at most 50%, existing

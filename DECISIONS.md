@@ -78,3 +78,125 @@ when later work proves them right or wrong.
 - **Why.** The runtime image carries no build tooling (it dropped from 366 MB to 272 MB),
   and a compromised process does not run as root.
 - **With hindsight.** No change so far.
+
+## Data model
+
+### D8. Logins (`users`) are separate from borrower profiles (`applicants`)
+
+- **Decision.** `users` holds the email, password hash and role. `applicants` holds the
+  borrower profile and points at exactly one applicant user. This makes seven tables, not
+  the six in the plan.
+- **Alternative.** Credentials on `applicants` plus a separate underwriters table, or one
+  table with profile columns that are empty for underwriters.
+- **Why.** Underwriters need logins but have no borrower profile. Authentication reads
+  one table whatever the role, and credentials and profiles change for different reasons.
+- **With hindsight.** No change so far.
+
+### D9. One status column covers the whole loan lifecycle
+
+- **Decision.** `applications.status` runs from `submitted` to `closed`. The `loans` row,
+  the booked contract, is created at the `approved → disbursed` transition.
+- **Alternative.** The usual split between origination and servicing: an application
+  status that ends at approved or rejected, and a separate loan-account status.
+- **Why.** The plan describes one state machine, and one column gives one place to
+  enforce transitions and take the row lock.
+- **With hindsight.** Once servicing grows (overdue buckets, foreclosure, restructuring),
+  the loan account deserves its own status and state machine.
+
+### D10. Money is `NUMERIC(12, 2)` in the database and `Decimal` in Python
+
+- **Decision.** Amounts are rupees with two decimals; interest rates are percent per
+  annum as `NUMERIC(5, 2)`; FOIR is `NUMERIC(12, 4)`. Floats never touch money.
+- **Alternative.** Integer paise in `BIGINT`, which is also exact; or floats, which are
+  not (`0.1 + 0.2 != 0.3`).
+- **Why.** Exact arithmetic with rounding chosen explicitly, and values that read
+  naturally in SQL reports.
+- **With hindsight.** No change so far.
+
+### D11. Enums are `VARCHAR` plus a `CHECK` constraint, not native PostgreSQL enums
+
+- **Decision.** SQLAlchemy `Enum(native_enum=False, create_constraint=True)`, storing
+  lowercase values such as `under_review`.
+- **Alternative.** `CREATE TYPE ... AS ENUM`.
+- **Why.** Changing a CHECK constraint is a drop and an add in one migration. Native enum
+  values can be added and renamed but never removed without rebuilding the type.
+- **With hindsight.** Alembic's autogenerate does not notice a changed CHECK constraint,
+  so adding a status needs a hand-written migration step. Still worth it.
+
+### D12. The database enforces the invariants too
+
+- **Decision.** CHECK and UNIQUE constraints cover the rules that must never break:
+  positive amounts, tenure of 1 to 360 months, credit score of 300 to 900, at least one
+  reason code per decision, one decision and one loan per application, unique idempotency
+  keys, instalment = principal + interest, and `paid_at` set exactly when an instalment
+  is paid. A naming convention gives every constraint a predictable name that tests check.
+- **Alternative.** Validate only in Pydantic models and service code.
+- **Why.** Application code has bugs, and scripts or other services may write to the
+  same tables; the database is the last line of defence. The reason-code check uses
+  `cardinality(reason_codes) > 0`: `array_length` returns NULL for an empty array, and a
+  CHECK that evaluates to NULL passes.
+- **With hindsight.** No change so far.
+
+### D13. A decision stores the inputs it was made on
+
+- **Decision.** Each decision records the credit score, income, existing obligations,
+  proposed EMI, FOIR, active-loan count, rules version, who decided and when.
+- **Alternative.** Store only the outcome and reason codes, and recompute on demand.
+- **Why.** Profiles change after a decision. Explaining it later, to an auditor or a
+  customer disputing it, needs what the rules saw at the time.
+- **With hindsight.** No change so far.
+
+### D14. `repayments` has one row per instalment
+
+- **Decision.** The whole EMI schedule is written at disbursal. Each row holds its
+  principal and interest split, closing balance and paid status.
+- **Alternative.** Separate schedule and payment tables, with payments allocated to
+  instalments.
+- **Why.** The MVP accepts only whole EMIs, so one payment always settles exactly one
+  instalment.
+- **With hindsight.** Partial payments, prepayments or late fees need payments as their
+  own records and an allocation step.
+
+### D15. The audit log is keyed by application, with a foreign key
+
+- **Decision.** `audit_log` rows reference `applications.id` and record the action,
+  actor, previous and new status, JSON details and time. They are written in the same
+  transaction as the change they describe.
+- **Alternative.** A generic `(entity_type, entity_id)` log without a foreign key.
+- **Why.** Every audited event in the MVP belongs to one application's lifecycle, so a
+  real foreign key keeps integrity, and an application's history is one indexed lookup.
+- **With hindsight.** Auditing events outside an application (role changes, sign-ins)
+  needs the generic shape. Append-only is a convention here; in production the
+  application's database role would have INSERT but not UPDATE or DELETE on this table.
+
+### D16. `BIGINT` identity primary keys
+
+- **Decision.** `BIGINT GENERATED BY DEFAULT AS IDENTITY` on every table.
+- **Alternative.** UUIDs, random (v4) or time-ordered (v7).
+- **Why.** Compact, fast indexes, and IDs that are easy to read in demos and tests.
+  Sequential IDs are guessable, so every endpoint checks ownership and answers 404 for
+  other people's records.
+- **With hindsight.** Sequential IDs also reveal volume. A public API should expose
+  UUIDv7s and keep integers internal.
+
+### D17. Tests run on a migrated database, each inside a rolled-back transaction
+
+- **Decision.** The suite builds the schema once per run with `alembic upgrade head` on
+  an empty database. Each test runs inside a transaction that is rolled back afterwards;
+  a commit in the code under test only releases a SAVEPOINT. One test checks that the
+  models and migrations match, another downgrades to empty and upgrades again.
+- **Alternative.** `Base.metadata.create_all()` and truncating tables after each test.
+- **Why.** Every run exercises the real migrations, and rollback isolates tests faster
+  than truncation. Because the suite drops the schema, it refuses to run unless the
+  database name ends in `_test`.
+- **With hindsight.** A test that needs two real concurrent connections cannot use this
+  pattern and must commit and clean up its own data.
+
+### D18. Migrations run when the API container starts
+
+- **Decision.** The container's start script runs `alembic upgrade head`, then `exec`s
+  uvicorn so that it receives shutdown signals directly.
+- **Alternative.** A separate one-off migration job that runs before the API starts.
+- **Why.** `docker compose up` gives a working API with no extra step.
+- **With hindsight.** With several API replicas, migrations should run once as a release
+  step instead of racing in every replica.
