@@ -6,12 +6,13 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.config import Settings
-from app.routers import health
+from app.errors import DomainError, handle_domain_error
+from app.routers import auth, health
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     """Build the application. Tests pass their own settings; production reads the environment."""
-    settings = settings or Settings()
+    settings = settings or Settings()  # type: ignore[call-arg]  # values come from the env
     engine = create_engine(settings.database_url, pool_pre_ping=True)
 
     @asynccontextmanager
@@ -27,6 +28,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = settings
     app.state.session_factory = sessionmaker(bind=engine, expire_on_commit=False)
+    # Starlette types handlers as taking any Exception; this one only ever gets a DomainError.
+    app.add_exception_handler(DomainError, handle_domain_error)  # type: ignore[arg-type]
 
     app.include_router(health.router)
+    app.include_router(auth.router)
     return app

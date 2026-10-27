@@ -200,3 +200,73 @@ when later work proves them right or wrong.
 - **Why.** `docker compose up` gives a working API with no extra step.
 - **With hindsight.** With several API replicas, migrations should run once as a release
   step instead of racing in every replica.
+
+## Authentication
+
+### D19. Stateless JWT access tokens, 30 minutes, no refresh tokens
+
+- **Decision.** `POST /auth/token` (the OAuth2 password flow, so Swagger's Authorize
+  button works) returns an HS256-signed JWT carrying `sub`, `role`, `iat` and `exp`.
+- **Alternative.** Server-side sessions in a table behind a cookie, or short access tokens
+  paired with refresh tokens.
+- **Why.** The plan asks for JWT, and a bearer token suits an API whose callers are other
+  services or a single-page app. A short expiry limits what a leaked token can do.
+- **With hindsight.** A token cannot be revoked before it expires (logout, compromised
+  account). That needs a denylist of token IDs, or very short access tokens with
+  refresh tokens stored server-side and rotated on use.
+
+### D20. The token names the user; the role comes from the database on every request
+
+- **Decision.** Each request loads the user by the token's `sub` and checks the role
+  stored in the database. The `role` claim is informational, for clients.
+- **Alternative.** Trust the role claim and skip the query.
+- **Why.** A deleted user or a changed role takes effect immediately, for the price of
+  one primary-key lookup.
+- **With hindsight.** No change so far.
+
+### D21. Argon2id password hashes, through pwdlib
+
+- **Decision.** `pwdlib`'s recommended hasher: Argon2id at 64 MiB memory, 3 iterations,
+  4 lanes.
+- **Alternative.** bcrypt through passlib.
+- **Why.** Argon2id is memory-hard and OWASP's first recommendation. passlib is no longer
+  maintained, and bcrypt only uses the first 72 bytes of a password. pwdlib is what
+  FastAPI's security tutorial uses.
+- **With hindsight.** Hashing takes about 75 ms by design, so the tests hash their shared
+  password once per run instead of once per user.
+
+### D22. Sign-in does not reveal which accounts exist
+
+- **Decision.** A wrong password and an unknown email get the same 401 and take about
+  the same time: an unknown email is still checked against a dummy hash. Tokens must use
+  HS256 (pinned, so `alg: none` is refused) and carry `sub`, `iat` and `exp`. The signing
+  secret has no default and must be at least 32 characters, or the API will not start.
+- **Alternative.** Return early for unknown emails, which is faster but lets an attacker
+  learn which emails have accounts by timing the response.
+- **Why.** Account enumeration is the first step of credential stuffing.
+- **With hindsight.** Registration still reveals a taken email with a 409, the usual
+  trade-off when there is no email-verification step. Rate limiting on `/auth/token` is
+  missing and would be the next addition.
+
+### D23. Applicants register themselves; underwriters cannot
+
+- **Decision.** `POST /auth/register` always creates an applicant. Request bodies forbid
+  unknown fields, so sending `"role": "underwriter"` is a 422. Underwriter accounts are
+  provisioned outside the API, by an operator.
+- **Alternative.** A role field on registration guarded by a check, or an admin endpoint.
+- **Why.** Self-service privilege escalation is impossible by construction rather than
+  by a check that could be forgotten.
+- **With hindsight.** No change so far.
+
+### D24. Business errors are exceptions with a status and a stable code
+
+- **Decision.** Services raise `DomainError` subclasses, such as `EmailAlreadyRegistered`
+  (409, `email_already_registered`). One exception handler renders every such error as
+  `{"detail": ..., "code": ...}`.
+- **Alternative.** Raise FastAPI's `HTTPException` inside services, or return result
+  objects.
+- **Why.** Services do not depend on FastAPI, so the seed script can call them. Clients
+  get a machine-readable code, and every error has the same shape.
+- **With hindsight.** The HTTP status sits on the exception class, a small leak of HTTP
+  into the service layer. A mapping table in the API layer would be purer but is more
+  code for no practical gain at this size.

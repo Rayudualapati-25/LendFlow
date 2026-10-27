@@ -5,7 +5,7 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-from app.config import Settings
+from app.config import DatabaseSettings
 from app.models import Base
 
 config = context.config
@@ -16,7 +16,7 @@ if config.config_file_name is not None:
 # The test suite sets the URL explicitly; everywhere else it comes from DATABASE_URL.
 if not config.get_main_option("sqlalchemy.url"):
     # ConfigParser treats "%" as interpolation syntax, and URL-encoded passwords contain it.
-    config.set_main_option("sqlalchemy.url", Settings().database_url.replace("%", "%%"))
+    config.set_main_option("sqlalchemy.url", DatabaseSettings().database_url.replace("%", "%%"))
 
 target_metadata = Base.metadata
 
