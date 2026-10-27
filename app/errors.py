@@ -38,3 +38,8 @@ class TermsOutsideProduct(DomainError):
 class ApplicationNotFound(DomainError):
     status_code = 404
     code = "application_not_found"
+
+
+class IllegalTransition(DomainError):
+    status_code = 409
+    code = "illegal_transition"
