@@ -37,7 +37,22 @@ pytest · Docker Compose · GitHub Actions
 docker compose up --build
 ```
 
-The API listens on <http://localhost:8000>; interactive docs are at `/docs`.
+The API listens on <http://localhost:8000>; interactive docs are at `/docs`. On first start
+the container migrates the database and loads a year of demo data (60 applicants, 74 loans),
+replayed through the same code as the API. Sign in from `/docs` with **Authorize**:
+
+| Role | Email | Password |
+|---|---|---|
+| Underwriter | `underwriter@example.com` | `lendflow-demo-password` |
+| Applicant | `applicant@example.com` | `lendflow-demo-password` |
+
+The demo applicant's first request (₹2,10,000 over 6 months) was refused with
+`FOIR_ABOVE_LIMIT`; the same amount over 12 months was approved and disbursed. These
+credentials exist only in the local demo data. `python scripts/smoke_test.py` checks a running
+stack end to end.
+
+Create a real underwriter account with `docker compose exec api python -m app.cli
+create-underwriter EMAIL`; it prompts for the password without echoing it.
 
 ## Development
 

@@ -252,7 +252,7 @@ when later work proves them right or wrong.
 
 - **Decision.** `POST /auth/register` always creates an applicant. Request bodies forbid
   unknown fields, so sending `"role": "underwriter"` is a 422. Underwriter accounts are
-  provisioned outside the API, by an operator.
+  created with an operator command (D48).
 - **Alternative.** A role field on registration guarded by a check, or an admin endpoint.
 - **Why.** Self-service privilege escalation is impossible by construction rather than
   by a check that could be forgotten.
@@ -559,3 +559,34 @@ when later work proves them right or wrong.
   and closed loans owe nothing.
 - **With hindsight.** The next report a lender would ask for is overdue loans: unpaid
   instalments past their due date, grouped by days past due.
+
+## Demo data and operations
+
+### D47. Demo data is a year replayed through the real services
+
+- **Decision.** `python -m app.cli seed` replays a year on a small event timeline.
+  Applications arrive at random times; the underwriter reviews them, decides with a
+  randomly drawn credit score and disburses the approved ones; borrowers pay each EMI on
+  its due date, and about one in ten stops after a few payments. Every step calls the same
+  service the API uses. A fixed random seed and end date (26 October 2026) make every run
+  identical, and a test pins the result: 60 applicants, 112 applications, 74 loans. Docker
+  Compose runs it on first start (`SEED_DEMO_DATA=true`, with `--if-empty`).
+- **Alternative.** SQL fixtures, or generated rows inserted in bulk.
+- **Why.** Rows inserted directly could break rules the services enforce: a loan with no
+  approved decision, a schedule that does not add up, an audit trail out of order. Through
+  the services, the seed is one more large integration test. The timeline keeps history
+  consistent: each decision sees exactly the loans that were active at that moment.
+- **With hindsight.** The first calibration produced almost no closed loans, because short
+  personal loans with large amounts failed the FOIR rule, which was the rules doing their
+  job; amounts were then sized to tenures to give a believable book. A year takes about five
+  seconds to replay; load testing at volume would need bulk generation instead.
+
+### D48. Underwriters are created with an operator command
+
+- **Decision.** `python -m app.cli create-underwriter EMAIL` reads the password from
+  standard input and applies the same email and password rules as registration.
+- **Alternative.** An admin-only HTTP endpoint, or inserting a row with SQL.
+- **Why.** No HTTP request can ever create an underwriter (D23). Reading the password from
+  standard input keeps it out of shell history and process listings.
+- **With hindsight.** In production, staff accounts belong in an identity provider (single
+  sign-on with role claims) rather than in local passwords.
