@@ -1,5 +1,7 @@
 # LendFlow
 
+[![CI](https://github.com/Rayudualapati-25/LendFlow/actions/workflows/ci.yml/badge.svg)](https://github.com/Rayudualapati-25/LendFlow/actions/workflows/ci.yml)
+
 A loan-origination and credit-decision API. It takes a loan from application to
 disbursement and explains every approval or rejection with reason codes.
 
