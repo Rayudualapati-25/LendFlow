@@ -1,10 +1,11 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, Header, Query, Response, status
 
 from app.db import SessionDep
 from app.dependencies import ApplicantUser, CurrentUser, NowDep, UnderwriterUser
 from app.domain.enums import ApplicationStatus
+from app.errors import IdempotencyKeyRequired
 from app.schemas import (
     ApplicationOut,
     ApplicationRequest,
@@ -12,8 +13,9 @@ from app.schemas import (
     DecisionOut,
     DecisionRequest,
     Error,
+    LoanOut,
 )
-from app.services import applications, decisions
+from app.services import applications, decisions, loans
 
 router = APIRouter(prefix="/applications", tags=["applications"])
 
@@ -100,3 +102,39 @@ def decide(
 def read_decision(application_id: int, user: CurrentUser, session: SessionDep) -> DecisionOut:
     """The decision and its reasons, for the applicant who applied or any underwriter."""
     return DecisionOut.model_validate(decisions.get_visible_to(session, user, application_id))
+
+
+@router.post(
+    "/{application_id}/disburse",
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        400: {"model": Error},
+        404: {"model": Error},
+        409: {"model": Error},
+        422: {"model": Error},
+    },
+)
+def disburse(
+    application_id: int,
+    underwriter: UnderwriterUser,
+    session: SessionDep,
+    now: NowDep,
+    response: Response,
+    idempotency_key: Annotated[
+        str | None,
+        Header(description="Unique per disbursal, such as a UUID. Retries must reuse it."),
+    ] = None,
+) -> LoanOut:
+    """Book the loan and its EMI schedule (approved -> disbursed). Safe to retry.
+
+    A retry with the same Idempotency-Key returns the original loan, marked with an
+    `Idempotent-Replayed: true` header; the same key on another application is a 422.
+    """
+    if not idempotency_key or len(idempotency_key) > 255:
+        raise IdempotencyKeyRequired("Send an Idempotency-Key header of 1 to 255 characters")
+    loan, replayed = loans.disburse(
+        session, underwriter, application_id, idempotency_key=idempotency_key, now=now
+    )
+    if replayed:
+        response.headers["Idempotent-Replayed"] = "true"
+    return LoanOut.model_validate(loan)
