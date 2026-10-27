@@ -516,3 +516,42 @@ when later work proves them right or wrong.
   borrower; the UTC date would schedule every EMI a day early.
 - **With hindsight.** A lender working across countries would keep a business time zone per
   entity or product rather than a constant.
+
+## Reports
+
+### D44. Reports are plain SQL files, not ORM queries
+
+- **Decision.** Each report is a `.sql` file in `app/reports/`, built from CTEs and window
+  functions, run with `text()` and validated into Pydantic rows.
+- **Alternative.** SQLAlchemy query builders, or fetching rows and aggregating in Python.
+- **Why.** Reviewers and analysts read SQL, the files run unchanged in `psql`, and window
+  functions and `FILTER` read more clearly as SQL than through a builder. The database
+  aggregates instead of shipping every row to Python.
+- **With hindsight.** As reports multiply, a read replica or materialised views would keep
+  heavy queries off the primary database. Not needed at this size.
+
+### D45. Months are Indian calendar months, and every month is listed
+
+- **Decision.** Decisions are grouped by month in `Asia/Kolkata`. A calendar CTE built
+  with `generate_series` lists every month from the first decision to the last, including
+  months with none, before the window functions run.
+- **Alternative.** Group by UTC month and list only the months that have decisions.
+- **Why.** A decision made at 00:30 on 1 April in India belongs to April for the business;
+  a test pins that case and fails if the report switches to UTC. Without the calendar, a
+  "3-month" rolling window would silently cover more than three months after a quiet month,
+  and "previous month" would compare months that are not adjacent.
+- **With hindsight.** At high volume, a daily summary table would avoid rescanning every
+  decision.
+
+### D46. Outstanding is principal minus principal repaid, on disbursed loans
+
+- **Decision.** For each loan whose application is `disbursed`, outstanding is the
+  principal minus the principal part of its paid instalments. Products are compared with
+  `SUM() OVER ()` for their share of the book and `RANK()`.
+- **Alternative.** Take the closing balance of the last paid instalment, or include
+  interest still due.
+- **Why.** Summing repaid principal does not depend on payment order and matches the loan
+  API's `outstanding_principal`. Principal is what a lender means by its outstanding book,
+  and closed loans owe nothing.
+- **With hindsight.** The next report a lender would ask for is overdue loans: unpaid
+  instalments past their due date, grouped by days past due.
