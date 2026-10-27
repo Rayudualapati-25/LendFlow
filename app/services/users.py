@@ -10,8 +10,13 @@ from app.security import hash_password, spend_verification_time, verify_password
 
 
 def register_applicant(session: Session, email: str, password: str) -> User:
-    """Create an applicant login. The unique index, not a prior SELECT, settles races."""
-    user = User(email=email, password_hash=hash_password(password), role=Role.APPLICANT)
+    """Self-service sign-up, which only ever creates applicants (D23)."""
+    return create_user(session, email=email, password=password, role=Role.APPLICANT)
+
+
+def create_user(session: Session, *, email: str, password: str, role: Role) -> User:
+    """Create a login. The unique index, not a prior SELECT, settles races on the email."""
+    user = User(email=email, password_hash=hash_password(password), role=role)
     session.add(user)
     try:
         session.commit()
