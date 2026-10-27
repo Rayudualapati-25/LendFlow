@@ -1,5 +1,6 @@
 """Building blocks for every status change: lock the row, check the move, audit it."""
 
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import select
@@ -38,6 +39,7 @@ def move(
     *,
     actor: User | None,
     action: str,
+    now: datetime,
     details: dict[str, Any] | None = None,
 ) -> None:
     """Change the status if the lifecycle allows it, recording the change in the audit log.
@@ -50,8 +52,10 @@ def move(
         application,
         action=action,
         actor=actor,
+        at=now,
         from_status=application.status,
         to_status=target,
         details=details,
     )
     application.status = target
+    application.updated_at = now

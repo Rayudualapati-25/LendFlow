@@ -26,11 +26,16 @@ router = APIRouter(prefix="/applications", tags=["applications"])
     responses={409: {"model": Error}, 422: {"model": Error}},
 )
 def submit_application(
-    body: ApplicationRequest, user: ApplicantUser, session: SessionDep
+    body: ApplicationRequest, user: ApplicantUser, session: SessionDep, now: NowDep
 ) -> ApplicationOut:
     """Apply for a loan. The product's current rate is quoted and locked in."""
     application = applications.submit(
-        session, user, product=body.product, amount=body.amount, tenure_months=body.tenure_months
+        session,
+        user,
+        product=body.product,
+        amount=body.amount,
+        tenure_months=body.tenure_months,
+        now=now,
     )
     return ApplicationOut.model_validate(application)
 
@@ -57,11 +62,11 @@ def read_application(application_id: int, user: CurrentUser, session: SessionDep
 
 @router.post("/{application_id}/review", responses={404: {"model": Error}, 409: {"model": Error}})
 def start_review(
-    application_id: int, underwriter: UnderwriterUser, session: SessionDep
+    application_id: int, underwriter: UnderwriterUser, session: SessionDep, now: NowDep
 ) -> ApplicationOut:
     """Take a submitted application into review (submitted -> under_review)."""
     return ApplicationOut.model_validate(
-        applications.start_review(session, underwriter, application_id)
+        applications.start_review(session, underwriter, application_id, now=now)
     )
 
 

@@ -463,13 +463,17 @@ when later work proves them right or wrong.
 ### D40. Time is an input
 
 - **Decision.** Services take `now` as a parameter; the API supplies it from a
-  `current_time` dependency that tests override. Database connections use the UTC time
-  zone, so timestamps come back in UTC whatever the server's setting.
+  `current_time` dependency that tests override. Every state change and its audit entry
+  take their timestamps from it, not from the database's `now()`. Database connections use
+  the UTC time zone, so timestamps come back in UTC whatever the server's setting.
 - **Alternative.** Call `datetime.now()` inside services and freeze time in tests with a
   library such as freezegun.
 - **Why.** Explicit inputs keep services deterministic, and the seed script can backdate
   decisions and disbursals without patching anything.
-- **With hindsight.** No change so far.
+- **With hindsight.** The first version left submission, review and audit times to the
+  database's `now()`. Planning a seed that replays a year of history showed that a mix of
+  two clocks produces audit trails out of order with the decisions they explain, so every
+  state change now takes the injected clock.
 
 ## Disbursal and repayment
 

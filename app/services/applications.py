@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import select
@@ -13,7 +14,13 @@ from app.services.lifecycle import lock_application, move
 
 
 def submit(
-    session: Session, user: User, *, product: Product, amount: Decimal, tenure_months: int
+    session: Session,
+    user: User,
+    *,
+    product: Product,
+    amount: Decimal,
+    tenure_months: int,
+    now: datetime,
 ) -> Application:
     """File a new application at the product's current rate."""
     if user.applicant is None:
@@ -26,6 +33,8 @@ def submit(
         tenure_months=tenure_months,
         annual_rate_pct=terms.annual_rate_pct,
         status=ApplicationStatus.SUBMITTED,
+        created_at=now,
+        updated_at=now,
     )
     session.add(application)
     audit.record(
@@ -33,6 +42,7 @@ def submit(
         application,
         action="application.submitted",
         actor=user,
+        at=now,
         to_status=ApplicationStatus.SUBMITTED,
     )
     session.commit()
@@ -74,7 +84,9 @@ def _can_see(user: User, application: Application) -> bool:
     return user.role == Role.UNDERWRITER or application.applicant.user_id == user.id
 
 
-def start_review(session: Session, underwriter: User, application_id: int) -> Application:
+def start_review(
+    session: Session, underwriter: User, application_id: int, *, now: datetime
+) -> Application:
     """Take a submitted application into review."""
     application = lock_application(session, application_id)
     move(
@@ -83,6 +95,7 @@ def start_review(session: Session, underwriter: User, application_id: int) -> Ap
         ApplicationStatus.UNDER_REVIEW,
         actor=underwriter,
         action="application.review_started",
+        now=now,
     )
     session.commit()
     return application

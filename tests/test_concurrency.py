@@ -92,7 +92,7 @@ def test_a_second_reviewer_waits_for_the_first_and_then_gets_409(
         with Session(engine, expire_on_commit=False) as session:
             underwriter = session.get_one(User, second_id)
             try:
-                applications.start_review(session, underwriter, application_id)
+                applications.start_review(session, underwriter, application_id, now=NOW)
                 outcome.append("reviewed")
             except IllegalTransition:
                 outcome.append("illegal transition")
@@ -109,6 +109,7 @@ def test_a_second_reviewer_waits_for_the_first_and_then_gets_409(
             ApplicationStatus.UNDER_REVIEW,
             actor=first.get_one(User, first_id),
             action="application.review_started",
+            now=NOW,
         )
         first.commit()
         racer.join(timeout=10)
