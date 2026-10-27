@@ -2,6 +2,7 @@
 
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from functools import cache
 from itertools import count
 from typing import Any, TypeVar
 
@@ -9,9 +10,18 @@ from sqlalchemy.orm import Session
 
 from app.domain.enums import ApplicationStatus, DecisionOutcome, InstallmentStatus, Product, Role
 from app.models import Applicant, Application, Decision, Loan, Repayment, User
+from app.security import hash_password
+
+DEFAULT_PASSWORD = "correct horse battery staple"
 
 Row = TypeVar("Row")
 _sequence = count(1)
+
+
+@cache
+def _default_password_hash() -> str:
+    # Argon2 is slow by design; hash the shared test password once per run.
+    return hash_password(DEFAULT_PASSWORD)
 
 
 def _missing(overrides: dict[str, Any], relation: str) -> bool:
@@ -28,7 +38,7 @@ def _save(session: Session, row: Row) -> Row:
 def make_user(session: Session, **overrides: Any) -> User:
     fields: dict[str, Any] = {
         "email": f"user{next(_sequence)}@example.com",
-        "password_hash": "not-a-real-hash",
+        "password_hash": _default_password_hash(),
         "role": Role.APPLICANT,
     }
     return _save(session, User(**(fields | overrides)))

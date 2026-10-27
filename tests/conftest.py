@@ -6,6 +6,7 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 from sqlalchemy import Engine, create_engine, make_url, text
 from sqlalchemy.orm import Session
 
@@ -18,6 +19,7 @@ TEST_DATABASE_URL = os.environ.get(
     "TEST_DATABASE_URL",
     "postgresql+psycopg://lendflow:lendflow@localhost:5432/lendflow_test",
 )
+TEST_JWT_SECRET = "test-only-secret-that-is-at-least-32-characters"
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -70,7 +72,7 @@ def db_session(engine: Engine) -> Iterator[Session]:
 
 @pytest.fixture
 def settings() -> Settings:
-    return Settings(database_url=TEST_DATABASE_URL)
+    return Settings(database_url=TEST_DATABASE_URL, jwt_secret=SecretStr(TEST_JWT_SECRET))
 
 
 @pytest.fixture
