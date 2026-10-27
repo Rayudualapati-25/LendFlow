@@ -1,12 +1,9 @@
-"""Expected business failures, rendered by one handler as `{"detail": ..., "code": ...}`.
+"""Expected business failures. The API renders them as `{"detail": ..., "code": ...}`.
 
-Services raise these instead of HTTPException, so they stay usable outside a request
-(the seed script, for instance). Each subclass fixes its HTTP status and a stable code
-that clients can branch on.
+Services and domain rules raise these instead of HTTPException, so they stay usable
+outside a request (the seed script, for instance). Each subclass fixes its HTTP status
+and a stable code that clients can branch on. This module has no web dependencies.
 """
-
-from fastapi import Request
-from fastapi.responses import JSONResponse
 
 
 class DomainError(Exception):
@@ -23,7 +20,21 @@ class EmailAlreadyRegistered(DomainError):
     code = "email_already_registered"
 
 
-async def handle_domain_error(_: Request, error: DomainError) -> JSONResponse:
-    return JSONResponse(
-        status_code=error.status_code, content={"detail": error.message, "code": error.code}
-    )
+class ProfileNotFound(DomainError):
+    status_code = 404
+    code = "profile_not_found"
+
+
+class ProfileRequired(DomainError):
+    status_code = 409
+    code = "profile_required"
+
+
+class TermsOutsideProduct(DomainError):
+    status_code = 422
+    code = "terms_outside_product"
+
+
+class ApplicationNotFound(DomainError):
+    status_code = 404
+    code = "application_not_found"

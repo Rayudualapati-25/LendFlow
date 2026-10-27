@@ -237,3 +237,5 @@ class AuditLog(Base):
     to_status: Mapped[str | None] = mapped_column(String(20))
     details: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
     created_at: Mapped[CreatedAt] = mapped_column(index=True)
+
+    application: Mapped[Application] = relationship()

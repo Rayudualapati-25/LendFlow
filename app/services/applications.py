@@ -1,0 +1,73 @@
+from collections.abc import Sequence
+from decimal import Decimal
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.domain.enums import ApplicationStatus, Product, Role
+from app.domain.products import check_terms
+from app.errors import ApplicationNotFound, ProfileRequired
+from app.models import Applicant, Application, User
+from app.services import audit
+
+
+def submit(
+    session: Session, user: User, *, product: Product, amount: Decimal, tenure_months: int
+) -> Application:
+    """File a new application at the product's current rate."""
+    if user.applicant is None:
+        raise ProfileRequired("Create your applicant profile before applying")
+    terms = check_terms(product, amount, tenure_months)
+    application = Application(
+        applicant=user.applicant,
+        product=product,
+        amount=amount,
+        tenure_months=tenure_months,
+        annual_rate_pct=terms.annual_rate_pct,
+        status=ApplicationStatus.SUBMITTED,
+    )
+    session.add(application)
+    audit.record(
+        session,
+        application,
+        action="application.submitted",
+        actor=user,
+        to_status=ApplicationStatus.SUBMITTED,
+    )
+    session.commit()
+    return application
+
+
+def list_visible_to(
+    session: Session,
+    user: User,
+    *,
+    status: ApplicationStatus | None,
+    limit: int,
+    offset: int,
+) -> Sequence[Application]:
+    """Newest first. Applicants see only their own applications; underwriters see all."""
+    query = (
+        select(Application)
+        .order_by(Application.created_at.desc(), Application.id.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    if user.role == Role.APPLICANT:
+        query = query.join(Application.applicant).where(Applicant.user_id == user.id)
+    if status is not None:
+        query = query.where(Application.status == status)
+    return session.scalars(query).all()
+
+
+def get_visible_to(session: Session, user: User, application_id: int) -> Application:
+    """The application, if this user may see it. Others' applications are reported missing,
+    so a guessed ID reveals nothing about whether it exists."""
+    application = session.get(Application, application_id)
+    if application is None or not _can_see(user, application):
+        raise ApplicationNotFound(f"Application {application_id} not found")
+    return application
+
+
+def _can_see(user: User, application: Application) -> bool:
+    return user.role == Role.UNDERWRITER or application.applicant.user_id == user.id
