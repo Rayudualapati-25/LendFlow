@@ -470,3 +470,49 @@ when later work proves them right or wrong.
 - **Why.** Explicit inputs keep services deterministic, and the seed script can backdate
   decisions and disbursals without patching anything.
 - **With hindsight.** No change so far.
+
+## Disbursal and repayment
+
+### D41. An idempotency key on disbursal, stored on the loan
+
+- **Decision.** `POST /applications/{id}/disburse` needs an `Idempotency-Key` header
+  (400 without one). The key is stored on the loan under a unique index. A retry with the
+  same key returns the original loan (201 with `Idempotent-Replayed: true`); the same key
+  on another application is a 422; a new key on an already-disbursed application is a 409.
+  Two mechanisms make this hold under concurrency: the row lock (D35) makes a retry wait
+  for the first request and then find its loan, and the unique index stops one key booking
+  loans on two applications. Each has a test with two real connections.
+- **Alternative.** A generic table of keys, request fingerprints and stored responses for
+  every POST; or no key at all, relying on approved to disbursed being one-way.
+- **Why.** Disbursal pays money out. A client retrying after a timeout must not pay twice
+  and should learn what the first attempt did; without a key, the status check alone would
+  turn the retry into a confusing 409. Only this endpoint needs the guarantee, so a column
+  on the booked loan is enough. Status codes follow the IETF draft on the
+  `Idempotency-Key` header; the replay header follows Stripe.
+- **With hindsight.** A generic key store pays off once several endpoints need one, such as
+  payments arriving from a gateway, and its keys should expire after a set period.
+
+### D42. A repayment names the instalment it settles
+
+- **Decision.** `POST /loans/{id}/repayments` with `{"installment_number": n}`.
+  Instalments are paid in order (409 `installment_out_of_order` otherwise) and once (409
+  `installment_already_paid`). Paying the last one moves the loan to closed. The borrower
+  pays their own instalments; an underwriter can record a payment received another way.
+- **Alternative.** "Pay the next instalment" without naming it, or free-form amounts
+  allocated to whatever is due.
+- **Why.** Naming the instalment makes a retried payment a harmless 409 instead of a second
+  charge: idempotent by design without another key. Whole-EMI payments match D14.
+- **With hindsight.** Partial payments, prepayment and overdue tracking (days past due)
+  need payments as their own records with an allocation step, and a payment gateway's
+  callbacks would carry their own idempotency keys.
+
+### D43. Timestamps are UTC; due dates are Indian business dates
+
+- **Decision.** All timestamps are stored in UTC. The EMI schedule starts from the
+  disbursal date in India Standard Time (UTC+05:30), a fixed offset because India has no
+  daylight saving time.
+- **Alternative.** Use the UTC date for due dates.
+- **Why.** A loan disbursed at 23:00 UTC on 31 October was disbursed on 1 November for the
+  borrower; the UTC date would schedule every EMI a day early.
+- **With hindsight.** A lender working across countries would keep a business time zone per
+  entity or product rather than a constant.
