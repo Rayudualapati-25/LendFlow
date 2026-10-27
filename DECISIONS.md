@@ -190,7 +190,7 @@ when later work proves them right or wrong.
   than truncation. Because the suite drops the schema, it refuses to run unless the
   database name ends in `_test`.
 - **With hindsight.** A test that needs two real concurrent connections cannot use this
-  pattern and must commit and clean up its own data.
+  pattern. The row-locking test (D35) commits its own rows and deletes them afterwards.
 
 ### D18. Migrations run when the API container starts
 
@@ -365,3 +365,42 @@ when later work proves them right or wrong.
 - **Why.** Verification needs integrations that are out of scope for this MVP.
 - **With hindsight.** In India the natural next step is the RBI's Account Aggregator
   framework, which lets a lender fetch bank statements with the customer's consent.
+
+## Lifecycle
+
+### D33. Status changes are actions, not a writable field
+
+- **Decision.** Each transition has its own endpoint: `POST /applications/{id}/review`
+  now, with decision and disbursal endpoints to follow. No endpoint lets a client set
+  `status`, and request bodies that try get a 422.
+- **Alternative.** `PATCH /applications/{id}` with `{"status": "approved"}`.
+- **Why.** Each transition has its own role, rules and side effects: deciding runs the
+  eligibility rules, disbursing books a loan. A generic status setter would let a client
+  skip them.
+- **With hindsight.** No change so far.
+
+### D34. One transition table, checked in one place
+
+- **Decision.** `ALLOWED_TRANSITIONS` maps each status to the statuses it may move to,
+  and `check_transition` is the only gate. Every status change goes through
+  `lifecycle.move`, which checks, writes the audit entry and sets the status. Tests cover
+  all 36 status pairs (5 legal, 31 illegal) against a list written independently of the
+  table.
+- **Alternative.** If/else checks inside each endpoint, or a state-machine library.
+- **Why.** The whole lifecycle reads in six lines, and an endpoint cannot forget a check
+  because it never sets the status itself. A library would add a dependency for a table.
+- **With hindsight.** No change so far.
+
+### D35. Transitions lock the application row
+
+- **Decision.** Every transition loads the application with `SELECT ... FOR UPDATE`,
+  refreshing any copy the session already holds, then checks the move, audits it and
+  commits. A test with two real connections shows a second underwriter waiting for the
+  first and then getting 409; with `FOR UPDATE` removed, that test fails.
+- **Alternative.** Optimistic concurrency, using a version column and
+  `UPDATE ... WHERE version = n`; or no protection at all.
+- **Why.** Without it, two underwriters could act on the same application at once and
+  approve or disburse it twice. For short transactions on one row, a pessimistic lock is
+  the simplest thing to reason about.
+- **With hindsight.** Optimistic locking suits long-lived edits, such as a form left
+  open in a browser, because it holds no lock while the user thinks.

@@ -8,7 +8,7 @@ responses ("100000.00"), so no client ever parses it into a binary float.
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import (
     AfterValidator,
@@ -123,3 +123,13 @@ class ApplicationOut(ResponseBody):
     def emi(self) -> Decimal:
         """The monthly instalment these terms imply."""
         return calculate_emi(self.amount, self.annual_rate_pct, self.tenure_months)
+
+
+class AuditEntryOut(ResponseBody):
+    id: int
+    action: str
+    actor_id: int | None
+    from_status: str | None
+    to_status: str | None
+    details: dict[str, Any]
+    created_at: datetime

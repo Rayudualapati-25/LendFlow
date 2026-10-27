@@ -7,8 +7,9 @@ from sqlalchemy.orm import Session
 from app.domain.enums import ApplicationStatus, Product, Role
 from app.domain.products import check_terms
 from app.errors import ApplicationNotFound, ProfileRequired
-from app.models import Applicant, Application, User
+from app.models import Applicant, Application, AuditLog, User
 from app.services import audit
+from app.services.lifecycle import lock_application, move
 
 
 def submit(
@@ -71,3 +72,28 @@ def get_visible_to(session: Session, user: User, application_id: int) -> Applica
 
 def _can_see(user: User, application: Application) -> bool:
     return user.role == Role.UNDERWRITER or application.applicant.user_id == user.id
+
+
+def start_review(session: Session, underwriter: User, application_id: int) -> Application:
+    """Take a submitted application into review."""
+    application = lock_application(session, application_id)
+    move(
+        session,
+        application,
+        ApplicationStatus.UNDER_REVIEW,
+        actor=underwriter,
+        action="application.review_started",
+    )
+    session.commit()
+    return application
+
+
+def audit_trail(session: Session, application_id: int) -> Sequence[AuditLog]:
+    """Every recorded change to the application, oldest first."""
+    if session.get(Application, application_id) is None:
+        raise ApplicationNotFound(f"Application {application_id} not found")
+    return session.scalars(
+        select(AuditLog)
+        .where(AuditLog.application_id == application_id)
+        .order_by(AuditLog.created_at, AuditLog.id)
+    ).all()

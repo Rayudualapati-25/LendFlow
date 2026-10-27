@@ -3,9 +3,9 @@ from typing import Annotated
 from fastapi import APIRouter, Query, status
 
 from app.db import SessionDep
-from app.dependencies import ApplicantUser, CurrentUser
+from app.dependencies import ApplicantUser, CurrentUser, UnderwriterUser
 from app.domain.enums import ApplicationStatus
-from app.schemas import ApplicationOut, ApplicationRequest, Error
+from app.schemas import ApplicationOut, ApplicationRequest, AuditEntryOut, Error
 from app.services import applications
 
 router = APIRouter(prefix="/applications", tags=["applications"])
@@ -44,3 +44,24 @@ def list_applications(
 @router.get("/{application_id}", responses={404: {"model": Error}})
 def read_application(application_id: int, user: CurrentUser, session: SessionDep) -> ApplicationOut:
     return ApplicationOut.model_validate(applications.get_visible_to(session, user, application_id))
+
+
+@router.post("/{application_id}/review", responses={404: {"model": Error}, 409: {"model": Error}})
+def start_review(
+    application_id: int, underwriter: UnderwriterUser, session: SessionDep
+) -> ApplicationOut:
+    """Take a submitted application into review (submitted -> under_review)."""
+    return ApplicationOut.model_validate(
+        applications.start_review(session, underwriter, application_id)
+    )
+
+
+@router.get("/{application_id}/audit", responses={404: {"model": Error}})
+def read_audit_trail(
+    application_id: int, _: UnderwriterUser, session: SessionDep
+) -> list[AuditEntryOut]:
+    """Every recorded change to the application, oldest first."""
+    return [
+        AuditEntryOut.model_validate(entry)
+        for entry in applications.audit_trail(session, application_id)
+    ]
