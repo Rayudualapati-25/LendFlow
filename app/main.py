@@ -8,7 +8,7 @@ from sqlalchemy.orm import sessionmaker
 from app.config import Settings
 from app.db import make_engine
 from app.errors import DomainError
-from app.routers import applicants, applications, auth, health, loans, products
+from app.routers import applicants, applications, auth, health, loans, products, reports
 
 
 async def handle_domain_error(_: Request, error: DomainError) -> JSONResponse:
@@ -38,6 +38,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Starlette types handlers as taking any Exception; this one only ever gets a DomainError.
     app.add_exception_handler(DomainError, handle_domain_error)  # type: ignore[arg-type]
 
-    for router in (health, auth, products, applicants, applications, loans):
+    for router in (health, auth, products, applicants, applications, loans, reports):
         app.include_router(router.router)
     return app

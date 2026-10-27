@@ -19,7 +19,7 @@ In progress. This README is the build plan; items are ticked as they land.
 - [x] Loan state machine: submitted → under review → approved or rejected →
       disbursed → closed; illegal transitions return 409
 - [x] Reducing-balance EMI schedule using `Decimal`; idempotency key on disbursement
-- [ ] SQL reports with CTEs and window functions: approval rate by month,
+- [x] SQL reports with CTEs and window functions: approval rate by month,
       outstanding amount by product
 - [ ] pytest suite with coverage (target 80%+), Docker Compose (API + Postgres),
       GitHub Actions CI on every push

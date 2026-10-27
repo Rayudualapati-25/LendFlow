@@ -194,3 +194,24 @@ class LoanOut(ResponseBody):
 
 class RepaymentRequest(RequestBody):
     installment_number: int = Field(ge=1, description="Which instalment this payment settles.")
+
+
+# Reports
+
+
+class ApprovalRateRow(BaseModel):
+    month: date
+    decided: int
+    approved: int
+    rejected: int
+    approval_rate: Decimal | None = Field(description="Approved / decided; null with none decided.")
+    approval_rate_3m: Decimal | None = Field(description="Over this month and the two before.")
+    change_vs_previous_month: Decimal | None
+
+
+class OutstandingRow(BaseModel):
+    product: Product
+    active_loans: int
+    outstanding: Decimal
+    share_pct: Decimal = Field(description="Share of all outstanding principal, in percent.")
+    rank: int
