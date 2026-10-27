@@ -19,6 +19,7 @@ services:
     build: .
     environment:
       DATABASE_URL: postgresql+psycopg://lendflow:lendflow@db:5432/lendflow
+      JWT_SECRET: local-development-only-secret-change-me
     ports:
       - "8000:8000"
     depends_on:
