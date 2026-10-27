@@ -3,7 +3,7 @@ from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.db import violated_constraint
 from app.domain.dates import business_date
@@ -111,9 +111,17 @@ def book_loan(
 
 
 def list_visible_to(session: Session, user: User, *, limit: int, offset: int) -> Sequence[Loan]:
-    """Newest first. Applicants see only their own loans; underwriters see all."""
+    """Newest first. Applicants see only their own loans; underwriters see all.
+
+    A loan's status lives on its application and its schedule in its repayments, so both
+    are loaded up front: one query each for the whole page, not two per loan (N+1).
+    """
     query = (
-        select(Loan).order_by(Loan.disbursed_at.desc(), Loan.id.desc()).limit(limit).offset(offset)
+        select(Loan)
+        .options(selectinload(Loan.application), selectinload(Loan.repayments))
+        .order_by(Loan.disbursed_at.desc(), Loan.id.desc())
+        .limit(limit)
+        .offset(offset)
     )
     if user.role == Role.APPLICANT:
         query = (
