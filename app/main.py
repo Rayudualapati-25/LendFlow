@@ -1,13 +1,20 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.config import Settings
-from app.errors import DomainError, handle_domain_error
-from app.routers import auth, health
+from app.errors import DomainError
+from app.routers import applicants, applications, auth, health, products
+
+
+async def handle_domain_error(_: Request, error: DomainError) -> JSONResponse:
+    return JSONResponse(
+        status_code=error.status_code, content={"detail": error.message, "code": error.code}
+    )
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -31,6 +38,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Starlette types handlers as taking any Exception; this one only ever gets a DomainError.
     app.add_exception_handler(DomainError, handle_domain_error)  # type: ignore[arg-type]
 
-    app.include_router(health.router)
-    app.include_router(auth.router)
+    for router in (health, auth, products, applicants, applications):
+        app.include_router(router.router)
     return app
