@@ -1,15 +1,20 @@
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
+from app.dependencies import current_time
 from app.domain.enums import ApplicationStatus, Product, Role
 from app.models import Applicant, AuditLog, User
 from tests.factories import make_applicant, make_application, make_user
 from tests.helpers import auth_headers
+
+FROZEN = datetime(2026, 3, 15, 8, 0, tzinfo=UTC)
 
 REQUEST = {"product": "personal", "amount": "100000", "tenure_months": 12}
 
@@ -222,3 +227,18 @@ def test_signed_in_users_without_a_profile_see_an_empty_list(
     response = client.get("/applications", headers=auth_headers(user, settings))
 
     assert response.json() == []
+
+
+def test_submission_is_timestamped_by_the_clock(
+    app: FastAPI,
+    client: TestClient,
+    db_session: Session,
+    applicant_headers: dict[str, str],
+) -> None:
+    app.dependency_overrides[current_time] = lambda: FROZEN
+
+    body = client.post("/applications", json=REQUEST, headers=applicant_headers).json()
+
+    assert body["created_at"] == body["updated_at"] == "2026-03-15T08:00:00Z"
+    entry = db_session.scalars(select(AuditLog).where(AuditLog.application_id == body["id"])).one()
+    assert entry.created_at == FROZEN

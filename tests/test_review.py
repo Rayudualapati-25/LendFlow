@@ -1,13 +1,19 @@
+from datetime import UTC, datetime
+
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
+from app.dependencies import current_time
 from app.domain.enums import ApplicationStatus, Role
 from app.models import AuditLog, User
 from tests.factories import make_applicant, make_application, make_user
 from tests.helpers import auth_headers
+
+FROZEN = datetime(2026, 3, 15, 8, 0, tzinfo=UTC)
 
 
 @pytest.fixture
@@ -138,3 +144,21 @@ def test_the_audit_trail_of_a_missing_application_is_404(
     client: TestClient, underwriter_headers: dict[str, str]
 ) -> None:
     assert client.get("/applications/999999/audit", headers=underwriter_headers).status_code == 404
+
+
+def test_the_review_is_timestamped_by_the_clock(
+    app: FastAPI,
+    client: TestClient,
+    db_session: Session,
+    underwriter_headers: dict[str, str],
+) -> None:
+    app.dependency_overrides[current_time] = lambda: FROZEN
+    application = make_application(db_session)
+
+    body = client.post(f"/applications/{application.id}/review", headers=underwriter_headers).json()
+
+    assert body["updated_at"] == "2026-03-15T08:00:00Z"
+    entry = db_session.scalars(
+        select(AuditLog).where(AuditLog.application_id == application.id)
+    ).one()
+    assert entry.created_at == FROZEN
