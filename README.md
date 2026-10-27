@@ -31,6 +31,30 @@ In progress. This README is the build plan; items are ticked as they land.
 Python 3.11+ · FastAPI · PostgreSQL 16 · SQLAlchemy 2 · Alembic · Pydantic v2 ·
 pytest · Docker Compose · GitHub Actions
 
+## Quick start
+
+```bash
+docker compose up --build
+```
+
+The API listens on <http://localhost:8000>; interactive docs are at `/docs`.
+
+## Development
+
+Requires Python 3.11+, [uv](https://docs.astral.sh/uv/) and PostgreSQL 16 for the tests.
+
+```bash
+uv sync                                   # virtualenv with runtime and dev dependencies
+docker run -d --name lendflow-test-db -p 5432:5432 \
+  -e POSTGRES_USER=lendflow -e POSTGRES_PASSWORD=lendflow \
+  -e POSTGRES_DB=lendflow_test postgres:16-alpine
+uv run pytest --cov                       # tests with branch coverage (80% floor)
+uv run ruff check . && uv run ruff format --check . && uv run mypy
+```
+
+The tests use `TEST_DATABASE_URL` (see `.env.example`) and default to the container above.
+Design choices and their trade-offs are recorded in [DECISIONS.md](DECISIONS.md).
+
 ## Done when
 
 - `docker compose up` starts the API and the database
