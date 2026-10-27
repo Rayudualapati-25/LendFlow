@@ -14,6 +14,14 @@ from app.security import verify_password
 from app.seed import DEMO_APPLICANT, DEMO_PASSWORD, DEMO_UNDERWRITER, Summary, seed
 
 UNTIL = date(2026, 10, 26)
+EXPECTED = Summary(
+    applicants=60,
+    applications=112,
+    decisions=108,
+    loans=74,
+    closed_loans=8,
+    installments_paid=353,
+)
 
 
 @pytest.fixture(scope="module")
@@ -50,14 +58,7 @@ def _count(session: Session, model: type[Base]) -> int:
 
 def test_the_seed_always_produces_the_numbers_in_the_readme(summary: Summary) -> None:
     # Fixed random seed and end date: if this changes, update the README's numbers too.
-    assert summary == Summary(
-        applicants=60,
-        applications=112,
-        decisions=108,
-        loans=74,
-        closed_loans=8,
-        installments_paid=353,
-    )
+    assert summary == EXPECTED
 
 
 def test_the_summary_counts_what_is_in_the_database(summary: Summary, db_session: Session) -> None:

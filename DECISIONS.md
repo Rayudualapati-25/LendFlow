@@ -4,6 +4,13 @@ One entry per decision: what was chosen, the main alternative, why, and what wou
 with hindsight. Entries are added in the pull request that makes the decision and revised
 when later work proves them right or wrong.
 
+Contents: [Service and tooling](#service-and-tooling) (D1–D7) ·
+[Data model](#data-model) (D8–D18) · [Authentication](#authentication) (D19–D24) ·
+[Business rules](#business-rules) (D25–D27) · [Applications](#applications) (D28–D32) ·
+[Lifecycle](#lifecycle) (D33–D35) · [Credit decisions](#credit-decisions) (D36–D40) ·
+[Disbursal and repayment](#disbursal-and-repayment) (D41–D43) · [Reports](#reports)
+(D44–D46) · [Demo data and operations](#demo-data-and-operations) (D47–D48)
+
 ## Service and tooling
 
 ### D1. Synchronous SQLAlchemy 2 behind FastAPI
@@ -15,8 +22,10 @@ when later work proves them right or wrong.
   throughput here. It does add pitfalls: lazy loads raise errors in async sessions, and one
   blocking call inside `async def` stalls every request on the event loop. Synchronous
   code is easier to read, test and debug.
-- **With hindsight.** No change so far. Async starts paying off once a request waits on
-  slow external services, such as a credit bureau or KYC provider.
+- **With hindsight.** No change. Synchronous sessions also kept the row locks simple: a
+  request holds one connection for its whole transaction, which the concurrency tests
+  rely on. Async starts paying off once a request waits on slow external services, such
+  as a credit bureau or KYC provider.
 
 ### D2. Application factory with injected settings
 
@@ -26,7 +35,8 @@ when later work proves them right or wrong.
   at import time.
 - **Why.** Tests build an app pointed at the test database without patching environment
   variables, and importing a module has no side effects.
-- **With hindsight.** No change so far.
+- **With hindsight.** No change. Tests also use it to add their own dependency overrides,
+  such as a frozen clock (D40).
 
 ### D3. Tests run against real PostgreSQL, not SQLite
 
@@ -36,8 +46,10 @@ when later work proves them right or wrong.
 - **Why.** The reports use PostgreSQL features (`FILTER`, window functions,
   `date_trunc`), and correctness depends on row locks and check constraints. A suite on
   SQLite could pass while production SQL fails.
-- **With hindsight.** No change so far. The cost is one `docker run` (or a local
-  PostgreSQL) before running tests.
+- **With hindsight.** Worth it. The constraint tests, the two-connection locking tests,
+  and the reports' `FILTER`, `generate_series` and `AT TIME ZONE` (the IST month boundary
+  in D45) could not have been tested on SQLite. The cost is one `docker run`, or a local
+  PostgreSQL, before running tests.
 
 ### D4. uv with a committed lockfile
 
@@ -57,7 +69,9 @@ when later work proves them right or wrong.
 - **Alternative.** flake8 + black + isort, and coverage reported but not enforced.
 - **Why.** Ruff replaces three tools with one fast one. A failing gate stops regressions;
   a number in a report only describes them.
-- **With hindsight.** No change so far.
+- **With hindsight.** No change. Treating warnings as errors paid off on the first day:
+  Starlette's test client had moved from `httpx` to `httpx2`, and the build said so at
+  once instead of breaking later.
 
 ### D6. One health endpoint that checks the database
 
@@ -281,7 +295,8 @@ when later work proves them right or wrong.
 - **Alternative.** Rules inside the ORM models or the route handlers.
 - **Why.** Pure rules are unit-tested in microseconds without a database, can be reused
   from scripts, and can be read in isolation.
-- **With hindsight.** No change so far.
+- **With hindsight.** No change. Purity is what made the property-based tests (D27, D38)
+  cheap enough to run thousands of generated cases.
 
 ### D26. EMI rounded to the paisa; interest on the real balance; last instalment adjusts
 
@@ -320,7 +335,7 @@ when later work proves them right or wrong.
 
 - **Decision.** Three products (personal, vehicle, home), each with a fixed rate and
   amount and tenure limits, defined as a constant. Submitting copies the product's rate
-  onto the application, and disbursal will copy it onto the loan.
+  onto the application, and disbursal copies it onto the loan.
 - **Alternative.** A products table that operations staff can edit without a deploy, and
   risk-based pricing per applicant.
 - **Why.** Rates change rarely and need sign-off, so a reviewed code change is an
@@ -370,9 +385,10 @@ when later work proves them right or wrong.
 
 ### D33. Status changes are actions, not a writable field
 
-- **Decision.** Each transition has its own endpoint: `POST /applications/{id}/review`
-  now, with decision and disbursal endpoints to follow. No endpoint lets a client set
-  `status`, and request bodies that try get a 422.
+- **Decision.** Each transition has its own endpoint: `review`, `decision` and `disburse`
+  under `POST /applications/{id}/`, and closure happens when the last instalment is paid
+  through `POST /loans/{id}/repayments`. No endpoint lets a client set `status`, and
+  request bodies that try get a 422.
 - **Alternative.** `PATCH /applications/{id}` with `{"status": "approved"}`.
 - **Why.** Each transition has its own role, rules and side effects: deciding runs the
   eligibility rules, disbursing books a loan. A generic status setter would let a client
