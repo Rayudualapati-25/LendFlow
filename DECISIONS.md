@@ -313,3 +313,55 @@ when later work proves them right or wrong.
   check what they did not. That is how the drift case in D26 was found.
 - **With hindsight.** No change. Hand-checked examples are kept as well, because an
   invariant cannot tell you the EMI itself is right.
+
+## Applications
+
+### D28. A product catalogue in code; the rate is locked in at submission
+
+- **Decision.** Three products (personal, vehicle, home), each with a fixed rate and
+  amount and tenure limits, defined as a constant. Submitting copies the product's rate
+  onto the application, and disbursal will copy it onto the loan.
+- **Alternative.** A products table that operations staff can edit without a deploy, and
+  risk-based pricing per applicant.
+- **Why.** Rates change rarely and need sign-off, so a reviewed code change is an
+  acceptable control at this size. Copying the rate means an applicant keeps the rate
+  they were quoted, even if the catalogue changes while they wait.
+- **With hindsight.** Real lenders reprice often and price by risk. That needs a table
+  of effective-dated rates and pricing rules.
+
+### D29. Money crosses the API as strings
+
+- **Decision.** Requests accept amounts as numbers or strings, with at most two decimal
+  places. Responses always send strings such as `"100000.00"`, which is Pydantic's
+  default for `Decimal`.
+- **Alternative.** Plain JSON numbers.
+- **Why.** JavaScript and many JSON libraries read numbers into binary floats, which
+  cannot hold most decimal amounts exactly. A string arrives exactly as sent.
+- **With hindsight.** No change so far.
+
+### D30. Other people's records answer 404, not 403
+
+- **Decision.** An applicant asking for someone else's application gets the same 404
+  `application_not_found` as for an ID that does not exist.
+- **Alternative.** 403 Forbidden.
+- **Why.** A 403 confirms that the record exists. With sequential IDs (D16), that would
+  let anyone count the lender's applications.
+- **With hindsight.** No change so far.
+
+### D31. Offset pagination, newest first
+
+- **Decision.** List endpoints take `limit` (1 to 100, default 50) and `offset`, sorted
+  by creation time with the ID as a tie-breaker.
+- **Alternative.** Keyset (cursor) pagination on `(created_at, id)`.
+- **Why.** Simple to implement and use, and pages are small.
+- **With hindsight.** Offset pages shift when new rows arrive and slow down as the offset
+  grows. Keyset pagination over the existing `(status, created_at)` index fixes both.
+
+### D32. Income and other loans are self-declared
+
+- **Decision.** The applicant's profile (`PUT /applicants/me`) states monthly income and
+  EMIs paid to other lenders. Nothing is verified.
+- **Alternative.** Verify income from bank statements or payslips before deciding.
+- **Why.** Verification needs integrations that are out of scope for this MVP.
+- **With hindsight.** In India the natural next step is the RBI's Account Aggregator
+  framework, which lets a lender fetch bank statements with the customer's consent.
