@@ -16,9 +16,9 @@ In progress. This README is the build plan; items are ticked as they land.
 - [x] JWT sign-in with two roles: applicant and underwriter
 - [x] Eligibility rules (credit score, FOIR / EMI-to-income at most 50%, existing
       loans) that return a reason code for every decision
-- [ ] Loan state machine: submitted → under review → approved or rejected →
+- [x] Loan state machine: submitted → under review → approved or rejected →
       disbursed → closed; illegal transitions return 409
-- [ ] Reducing-balance EMI schedule using `Decimal`; idempotency key on disbursement
+- [x] Reducing-balance EMI schedule using `Decimal`; idempotency key on disbursement
 - [ ] SQL reports with CTEs and window functions: approval rate by month,
       outstanding amount by product
 - [ ] pytest suite with coverage (target 80%+), Docker Compose (API + Postgres),

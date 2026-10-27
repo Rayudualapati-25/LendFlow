@@ -48,3 +48,33 @@ class IllegalTransition(DomainError):
 class DecisionNotFound(DomainError):
     status_code = 404
     code = "decision_not_found"
+
+
+class IdempotencyKeyRequired(DomainError):
+    status_code = 400
+    code = "idempotency_key_required"
+
+
+class IdempotencyKeyReused(DomainError):
+    status_code = 422
+    code = "idempotency_key_reused"
+
+
+class LoanNotFound(DomainError):
+    status_code = 404
+    code = "loan_not_found"
+
+
+class InstallmentNotFound(DomainError):
+    status_code = 404
+    code = "installment_not_found"
+
+
+class InstallmentAlreadyPaid(DomainError):
+    status_code = 409
+    code = "installment_already_paid"
+
+
+class InstallmentOutOfOrder(DomainError):
+    status_code = 409
+    code = "installment_out_of_order"

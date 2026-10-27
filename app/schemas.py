@@ -6,7 +6,7 @@ Money is a Decimal with at most two places in requests and is serialised as a st
 responses ("100000.00"), so no client ever parses it into a binary float.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Any, Literal
 
@@ -21,7 +21,13 @@ from pydantic import (
 )
 
 from app.domain.emi import PAISA, calculate_emi
-from app.domain.enums import ApplicationStatus, DecisionOutcome, Product, Role
+from app.domain.enums import (
+    ApplicationStatus,
+    DecisionOutcome,
+    InstallmentStatus,
+    Product,
+    Role,
+)
 
 
 def normalize_email(email: str) -> str:
@@ -157,3 +163,34 @@ class DecisionOut(ResponseBody):
     rules_version: str
     decided_by_id: int
     decided_at: datetime
+
+
+# Loans and repayments
+
+
+class InstallmentOut(ResponseBody):
+    installment_number: int
+    due_date: date
+    amount_due: Decimal
+    principal_component: Decimal
+    interest_component: Decimal
+    closing_balance: Decimal
+    status: InstallmentStatus
+    paid_at: datetime | None
+
+
+class LoanOut(ResponseBody):
+    id: int
+    application_id: int
+    principal: Decimal
+    annual_rate_pct: Decimal
+    tenure_months: int
+    emi: Decimal
+    status: ApplicationStatus
+    outstanding_principal: Decimal
+    disbursed_at: datetime
+    schedule: list[InstallmentOut] = Field(validation_alias="repayments")
+
+
+class RepaymentRequest(RequestBody):
+    installment_number: int = Field(ge=1, description="Which instalment this payment settles.")
