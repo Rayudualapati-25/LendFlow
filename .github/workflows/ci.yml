@@ -69,3 +69,13 @@ jobs:
       - name: Stop the stack
         if: always()
         run: docker compose down --volumes
+
+  blueprint:
+    # The live demo is deployed from render.yaml; a typo there would only show up on Render.
+    name: Validate the Render Blueprint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+      - name: Check render.yaml against Render's published schema
+        run: uvx check-jsonschema==0.38.2 --schemafile https://render.com/schema/render.yaml.json render.yaml
