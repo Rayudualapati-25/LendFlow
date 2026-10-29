@@ -1,3 +1,4 @@
+from collections import Counter
 from collections.abc import Iterator
 from datetime import date
 from decimal import Decimal
@@ -147,3 +148,29 @@ def test_the_reports_have_a_year_to_show(summary: Summary, db_session: Session) 
     assert len(months) >= 12
     assert sum(row["decided"] for row in months) == summary.decisions
     assert {row["product"] for row in products} == {"personal", "vehicle", "home"}
+
+
+def _bucket(days_past_due: int) -> str:
+    for bucket, ceiling in (("current", 0), ("sma_0", 30), ("sma_1", 60), ("sma_2", 90)):
+        if days_past_due <= ceiling:
+            return bucket
+    return "npa"
+
+
+def test_the_overdue_report_agrees_with_counting_loan_by_loan(
+    summary: Summary, db_session: Session
+) -> None:
+    # The seed stops at 18:00 on UNTIL, so today's rows are the book at that day-end.
+    expected: Counter[str] = Counter()
+    for loan in db_session.scalars(select(Loan)).all():
+        unpaid = [row.due_date for row in loan.repayments if row.status == InstallmentStatus.DUE]
+        if unpaid:
+            overdue = [due_date for due_date in unpaid if due_date <= UNTIL]
+            expected[_bucket((UNTIL - min(overdue)).days + 1 if overdue else 0)] += 1
+
+    rows = reports.overdue_by_bucket(db_session, as_of=UNTIL)
+    products = reports.outstanding_by_product(db_session)
+
+    assert {row["bucket"]: row["loans"] for row in rows if row["loans"]} == expected
+    assert expected["npa"] > 0  # borrowers who stopped paying months ago
+    assert sum(row["outstanding"] for row in rows) == sum(row["outstanding"] for row in products)
