@@ -14,9 +14,9 @@ repository:
 
 | Measure | Value |
 |---|---|
-| Endpoints | 24 |
-| Tests | 329, with 99.6% branch coverage |
-| Tables | 8 |
+| Endpoints | 26 |
+| Tests | 346, with 99.6% branch coverage |
+| Tables | 9 |
 | Seeded loans | 74 |
 
 Endpoints are counted from the OpenAPI schema, tables from the SQLAlchemy models, and the
@@ -46,7 +46,7 @@ against the code, so they cannot drift.
 - [x] Overdue report: the book by days past due in RBI's buckets (SMA-0, SMA-1, SMA-2,
       NPA), as of any day-end
 - [x] Prepayment and foreclosure, charging interest only for the days the money was owed
-- [ ] Refresh tokens, rotated on every use, with reuse detection
+- [x] Refresh tokens, rotated on every use, with reuse detection
 - [ ] A limit on repeated failed sign-ins
 - [ ] A one-click live demo on Render
 
@@ -57,6 +57,8 @@ submitted ──review──▶ under_review ──decision──▶ approved �
                                           └───────────▶ rejected
 ```
 
+- **Signing in** returns a 30-minute access token and a refresh token that works once:
+  each refresh hands out the next one, and replaying a used token ends the sign-in.
 - **Applicants** register, declare their income and other EMIs, and apply for a personal,
   vehicle or home loan. Each application quotes the product's rate and the EMI.
 - **Underwriters** take an application into review, then decide it with the applicant's
@@ -81,7 +83,9 @@ submitted ──review──▶ under_review ──decision──▶ approved �
 |---|---|---|---|
 | GET | `/health` | anyone | API and database health |
 | POST | `/auth/register` | anyone | create an applicant account |
-| POST | `/auth/token` | anyone | sign in (OAuth2 password flow) for a JWT |
+| POST | `/auth/token` | anyone | sign in (OAuth2 password flow) for a JWT and a refresh token |
+| POST | `/auth/refresh` | refresh token | a new access token and the next refresh token |
+| POST | `/auth/logout` | refresh token | end the sign-in |
 | GET | `/auth/me` | signed in | the current user |
 | GET | `/products` | anyone | loan products with their rates and limits |
 | GET, PUT | `/applicants/me` | applicant | read or save the applicant profile |

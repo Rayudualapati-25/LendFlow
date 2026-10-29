@@ -5,7 +5,7 @@ with hindsight. Entries are added in the pull request that makes the decision an
 when later work proves them right or wrong.
 
 Contents: [Service and tooling](#service-and-tooling) (D1–D7) ·
-[Data model](#data-model) (D8–D18) · [Authentication](#authentication) (D19–D24) ·
+[Data model](#data-model) (D8–D18) · [Authentication](#authentication) (D19–D24, D53) ·
 [Business rules](#business-rules) (D25–D27) · [Applications](#applications) (D28–D32) ·
 [Lifecycle](#lifecycle) (D33–D35) · [Credit decisions](#credit-decisions) (D36–D40) ·
 [Disbursal and repayment](#disbursal-and-repayment) (D41–D43, D50–D52) ·
@@ -227,9 +227,9 @@ Contents: [Service and tooling](#service-and-tooling) (D1–D7) ·
   paired with refresh tokens.
 - **Why.** The plan asks for JWT, and a bearer token suits an API whose callers are other
   services or a single-page app. A short expiry limits what a leaked token can do.
-- **With hindsight.** A token cannot be revoked before it expires (logout, compromised
-  account). That needs a denylist of token IDs, or very short access tokens with
-  refresh tokens stored server-side and rotated on use.
+- **With hindsight.** An access token cannot be revoked before it expires. Refresh
+  tokens stored server-side and rotated on use (D53) now carry the sign-in, so access
+  tokens stay short and stateless, and logout takes effect within their 30 minutes.
 
 ### D20. The token names the user; the role comes from the database on every request
 
@@ -286,6 +286,34 @@ Contents: [Service and tooling](#service-and-tooling) (D1–D7) ·
 - **With hindsight.** The HTTP status sits on the exception class, a small leak of HTTP
   into the service layer. A mapping table in the API layer would be purer but is more
   code for no practical gain at this size.
+
+### D53. Refresh tokens are opaque, stored as digests and rotated; reuse ends the sign-in
+
+- **Decision.** Signing in also returns a refresh token: 256 random bits
+  (`secrets.token_urlsafe`), stored only as a SHA-256 digest. `POST /auth/refresh`
+  exchanges it for a new access token and the next refresh token, and each one works
+  once. All the tokens of one sign-in share a `family_id`. Presenting a token that was
+  already exchanged revokes the whole family (401 `refresh_token_reused`): two parties
+  hold it, and the server cannot tell the client from the thief
+  ([RFC 9700](https://www.rfc-editor.org/rfc/rfc9700.html), section 4.14.2). A refresh
+  token dies after a day unused, and a sign-in lasts at most seven days however often it
+  is refreshed: an idle and an absolute timeout, as OWASP recommends for every session.
+  `POST /auth/logout` revokes the family and answers 204 even for unknown tokens. The
+  token's row is locked while it is exchanged, so two requests with one token take
+  turns; a test on two connections shows the second one ending the sign-in.
+- **Alternative.** Refresh tokens as JWTs; longer-lived access tokens; or RFC 6749's
+  `grant_type=refresh_token` on the token endpoint.
+- **Why.** A refresh token has to be revocable, so it lives in the database anyway, and
+  an opaque random string carries nothing to forge or decode. A fast digest is enough
+  because the token is random; passwords need Argon2 only because people choose them.
+  Rotation turns a stolen token into a detected event instead of a silent second
+  session. A separate JSON endpoint leaves the OAuth2 password form, and Swagger's
+  Authorize button, unchanged.
+- **With hindsight.** Strict reuse detection signs a user out when one client refreshes
+  twice in parallel (two browser tabs); accepting the previous token for a few seconds
+  is the usual fix. Logout does not end access tokens already issued: they lapse within
+  30 minutes, which is why they are short. A `sid` claim checked against revoked
+  sign-ins would end them at once, for one more lookup per request.
 
 ## Business rules
 
