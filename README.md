@@ -14,9 +14,9 @@ repository:
 
 | Measure | Value |
 |---|---|
-| Endpoints | 21 |
-| Tests | 287, with 99.7% branch coverage |
-| Tables | 7 |
+| Endpoints | 24 |
+| Tests | 329, with 99.6% branch coverage |
+| Tables | 8 |
 | Seeded loans | 74 |
 
 Endpoints are counted from the OpenAPI schema, tables from the SQLAlchemy models, and the
@@ -45,7 +45,7 @@ against the code, so they cannot drift.
 
 - [x] Overdue report: the book by days past due in RBI's buckets (SMA-0, SMA-1, SMA-2,
       NPA), as of any day-end
-- [ ] Prepayment and foreclosure, charging interest only for the days the money was owed
+- [x] Prepayment and foreclosure, charging interest only for the days the money was owed
 - [ ] Refresh tokens, rotated on every use, with reuse detection
 - [ ] A limit on repeated failed sign-ins
 - [ ] A one-click live demo on Render
@@ -53,7 +53,7 @@ against the code, so they cannot drift.
 ## How it works
 
 ```
-submitted ──review──▶ under_review ──decision──▶ approved ──disburse──▶ disbursed ──last EMI paid──▶ closed
+submitted ──review──▶ under_review ──decision──▶ approved ──disburse──▶ disbursed ──last EMI paid or foreclosure──▶ closed
                                           └───────────▶ rejected
 ```
 
@@ -66,6 +66,10 @@ submitted ──review──▶ under_review ──decision──▶ approved �
 - **Disbursal** books the loan and its reducing-balance EMI schedule. It requires an
   `Idempotency-Key`, so a retried request returns the original loan instead of paying out
   twice. Borrowers then pay instalments in order; the last payment closes the loan.
+- **Paying ahead.** A borrower can prepay part of the principal, choosing a lower EMI or
+  an earlier end date, or foreclose at today's quoted amount. Interest on the money paid
+  ahead is charged only for the days of the EMI period that have passed, and there is
+  no fee.
 - Every status change goes through one transition table, locks the application row and
   writes an audit entry in the same transaction. Any other move is a 409.
 - **Reports** for underwriters, in plain SQL: approval rate by month, the outstanding book
@@ -92,6 +96,9 @@ submitted ──review──▶ under_review ──decision──▶ approved �
 | GET | `/loans` | signed in | own loans, or all for underwriters |
 | GET | `/loans/{id}` | owner, underwriter | the loan and its EMI schedule |
 | POST | `/loans/{id}/repayments` | owner, underwriter | pay an instalment |
+| POST | `/loans/{id}/prepayments` | owner, underwriter | prepay principal, lowering the EMI or the tenure (`Idempotency-Key` required) |
+| GET | `/loans/{id}/foreclosure` | owner, underwriter | today's amount to close the loan |
+| POST | `/loans/{id}/foreclosure` | owner, underwriter | close the loan at today's amount (`Idempotency-Key` required) |
 | GET | `/reports/approval-rate` | underwriter | approval rate by month, rolling and month on month |
 | GET | `/reports/outstanding-by-product` | underwriter | principal outstanding by product, share and rank |
 | GET | `/reports/overdue-by-bucket` | underwriter | the book by days past due (current, SMA-0/1/2, NPA) at a day-end |
@@ -128,6 +135,10 @@ stack end to end.
 The demo year ends on 26 October 2026. `GET /reports/overdue-by-bucket?as_of=2026-10-26`
 shows the book that day: 62 loans current, 1 in SMA-2 and 3 NPA, from borrowers who
 stopped paying. Later days show EMIs falling due that nobody has paid yet.
+
+The demo applicant's ₹2,10,000 loan can be paid ahead: `GET /loans` gives its id, and
+`GET /loans/{id}/foreclosure` today's amount to close it. If an EMI has fallen due since
+the demo year ended, the API names the instalment to pay first.
 
 Create a real underwriter account with `docker compose exec api python -m app.cli
 create-underwriter EMAIL`; it prompts for the password without echoing it.
