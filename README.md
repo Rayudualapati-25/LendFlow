@@ -14,8 +14,8 @@ repository:
 
 | Measure | Value |
 |---|---|
-| Endpoints | 20 |
-| Tests | 260, with 99.7% branch coverage |
+| Endpoints | 21 |
+| Tests | 287, with 99.7% branch coverage |
 | Tables | 7 |
 | Seeded loans | 74 |
 
@@ -41,6 +41,15 @@ against the code, so they cannot drift.
 - [x] `DECISIONS.md`: each design choice, the alternative considered, and what
       would change with hindsight
 
+## Beyond the MVP
+
+- [x] Overdue report: the book by days past due in RBI's buckets (SMA-0, SMA-1, SMA-2,
+      NPA), as of any day-end
+- [ ] Prepayment and foreclosure, charging interest only for the days the money was owed
+- [ ] Refresh tokens, rotated on every use, with reuse detection
+- [ ] A limit on repeated failed sign-ins
+- [ ] A one-click live demo on Render
+
 ## How it works
 
 ```
@@ -59,6 +68,8 @@ submitted ──review──▶ under_review ──decision──▶ approved �
   twice. Borrowers then pay instalments in order; the last payment closes the loan.
 - Every status change goes through one transition table, locks the application row and
   writes an audit entry in the same transaction. Any other move is a 409.
+- **Reports** for underwriters, in plain SQL: approval rate by month, the outstanding book
+  by product, and the book by days past due in RBI's buckets as it stood at any day-end.
 
 ## API
 
@@ -83,6 +94,7 @@ submitted ──review──▶ under_review ──decision──▶ approved �
 | POST | `/loans/{id}/repayments` | owner, underwriter | pay an instalment |
 | GET | `/reports/approval-rate` | underwriter | approval rate by month, rolling and month on month |
 | GET | `/reports/outstanding-by-product` | underwriter | principal outstanding by product, share and rank |
+| GET | `/reports/overdue-by-bucket` | underwriter | the book by days past due (current, SMA-0/1/2, NPA) at a day-end |
 
 Errors share one shape, `{"detail": "...", "code": "..."}`, with a stable code such as
 `illegal_transition` or `idempotency_key_reused`. Money is sent as strings (`"8978.71"`).
@@ -110,7 +122,11 @@ replayed through the same code as the API. Sign in from `/docs` with **Authorize
 
 The demo applicant's first request (₹2,10,000 over 6 months) was refused with
 `FOIR_ABOVE_LIMIT`; the same amount over 12 months was approved and disbursed. These
-credentials exist only in the local demo data. `python scripts/smoke_test.py` checks a running
+credentials exist only in the local demo data.
+
+The demo year ends on 26 October 2026. `GET /reports/overdue-by-bucket?as_of=2026-10-26`
+shows the book that day: 62 loans current, 1 in SMA-2 and 3 NPA, from borrowers who
+stopped paying. Later days show EMIs falling due that nobody has paid yet. `python scripts/smoke_test.py` checks a running
 stack end to end.
 
 Create a real underwriter account with `docker compose exec api python -m app.cli

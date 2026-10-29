@@ -9,7 +9,7 @@ Contents: [Service and tooling](#service-and-tooling) (D1–D7) ·
 [Business rules](#business-rules) (D25–D27) · [Applications](#applications) (D28–D32) ·
 [Lifecycle](#lifecycle) (D33–D35) · [Credit decisions](#credit-decisions) (D36–D40) ·
 [Disbursal and repayment](#disbursal-and-repayment) (D41–D43) · [Reports](#reports)
-(D44–D46) · [Demo data and operations](#demo-data-and-operations) (D47–D48)
+(D44–D46, D49) · [Demo data and operations](#demo-data-and-operations) (D47–D48)
 
 ## Service and tooling
 
@@ -573,8 +573,36 @@ Contents: [Service and tooling](#service-and-tooling) (D1–D7) ·
 - **Why.** Summing repaid principal does not depend on payment order and matches the loan
   API's `outstanding_principal`. Principal is what a lender means by its outstanding book,
   and closed loans owe nothing.
-- **With hindsight.** The next report a lender would ask for is overdue loans: unpaid
-  instalments past their due date, grouped by days past due.
+- **With hindsight.** The next report a lender asks for is overdue loans grouped by days
+  past due; D49 adds it with the same definition of outstanding.
+
+### D49. Overdue loans are bucketed by RBI's day-end rule, as of any past day
+
+- **Decision.** `GET /reports/overdue-by-bucket` places each loan on the book at a day-end
+  in India into RBI's buckets for term loans: current, SMA-0 (1-30 days past due), SMA-1
+  (31-60), SMA-2 (61-90) and NPA (over 90). Days past due count from the loan's oldest
+  instalment still unpaid at the end of the day, with its due date as day 1. The SQL
+  rebuilds the book from timestamps, using only loans disbursed and payments made by that
+  day-end, so any past day can be reported and a later payment does not rewrite it.
+  `as_of` defaults to yesterday in India, the latest day-end; today or later is a 422
+  `day_not_ended`. Each bucket shows its share of the book and the share in that bucket or
+  a worse one, a running window sum whose SMA-1 row is the portfolio at risk over 30 days
+  (PAR30).
+- **Alternative.** A nightly job that stores each loan's days past due, as core banking
+  systems do; or counting the due date itself as day 0.
+- **Why.** Computing from payment times needs no batch job and no stored state that can
+  drift, and it answers "what did the book look like at month-end?" exactly. The day
+  count follows RBI's worked example: dues of 31 March 2021 left unpaid become SMA-1 at
+  the 30 April day-end, SMA-2 on 30 May and NPA on 29 June
+  ([RBI/2021-2022/125](https://www.rbi.org.in/Scripts/NotificationUser.aspx?Id=12194)).
+  A test replays those dates, and the SQL is checked against a loan-by-loan count in
+  Python over the seeded book.
+- **With hindsight.** This is a days-past-due view, not full asset classification. RBI
+  classifies the borrower rather than each loan, and an NPA is upgraded only when all
+  arrears are paid; here a loan moves bucket as soon as its oldest arrears are paid. At
+  scale, a daily snapshot table would make month-end reporting cheap, and regulatory
+  returns are built from such snapshots. A collections worklist, one row per overdue loan,
+  oldest first, is the natural next endpoint.
 
 ## Demo data and operations
 
