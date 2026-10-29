@@ -78,3 +78,8 @@ class InstallmentAlreadyPaid(DomainError):
 class InstallmentOutOfOrder(DomainError):
     status_code = 409
     code = "installment_out_of_order"
+
+
+class DayNotEnded(DomainError):
+    status_code = 422
+    code = "day_not_ended"

@@ -40,6 +40,7 @@ def main() -> None:
     underwriter = sign_in("underwriter@example.com")
     months = call("/reports/approval-rate", token=underwriter)
     products = call("/reports/outstanding-by-product", token=underwriter)
+    overdue = call("/reports/overdue-by-bucket", token=underwriter)
     loans = call("/loans", token=sign_in("applicant@example.com"))
 
     check(len(months) >= 12, f"expected a year of decisions, got {len(months)} months")
@@ -47,9 +48,15 @@ def main() -> None:
         {row["product"] for row in products} == {"personal", "vehicle", "home"},
         f"expected outstanding loans for every product, got {products}",
     )
-    check(len(loans) >= 1, "the demo applicant should have a loan")
     active = sum(row["active_loans"] for row in products)
-    print(f"OK: {len(months)} months of decisions, {active} active loans, demo login works")
+    # Nothing is paid after the demo year ends, so every active loan is on yesterday's book.
+    on_book = sum(row["loans"] for row in overdue["buckets"])
+    check(on_book == active, f"overdue report has {on_book} loans, expected {active}")
+    check(len(loans) >= 1, "the demo applicant should have a loan")
+    print(
+        f"OK: {len(months)} months of decisions, {active} active loans "
+        f"(overdue report as of {overdue['as_of']} agrees), demo login works"
+    )
 
 
 if __name__ == "__main__":
