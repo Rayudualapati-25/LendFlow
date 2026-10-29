@@ -111,7 +111,10 @@ def test_reports_are_empty_without_data(
     assert (response.status_code, response.json()) == (200, [])
 
 
-@pytest.mark.parametrize("path", ["/reports/approval-rate", "/reports/outstanding-by-product"])
+@pytest.mark.parametrize(
+    "path",
+    ["/reports/approval-rate", "/reports/outstanding-by-product", "/reports/overdue-by-bucket"],
+)
 def test_reports_are_for_underwriters_only(
     client: TestClient, db_session: Session, settings: Settings, path: str
 ) -> None:

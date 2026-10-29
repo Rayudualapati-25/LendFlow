@@ -215,3 +215,21 @@ class OutstandingRow(BaseModel):
     outstanding: Decimal
     share_pct: Decimal = Field(description="Share of all outstanding principal, in percent.")
     rank: int
+
+
+class OverdueBucketRow(BaseModel):
+    bucket: Literal["current", "sma_0", "sma_1", "sma_2", "npa"]
+    days_past_due_min: int
+    days_past_due_max: int | None = Field(description="Null for NPA, which has no upper limit.")
+    loans: int
+    outstanding: Decimal = Field(description="Principal still owed at the day-end.")
+    overdue: Decimal = Field(description="Unpaid instalments past their due date, in full.")
+    share_pct: Decimal | None = Field(description="Share of the book's principal, in percent.")
+    at_risk_pct: Decimal | None = Field(
+        description="Share of the book in this bucket or a worse one; the sma_1 row is PAR30."
+    )
+
+
+class OverdueReport(BaseModel):
+    as_of: date = Field(description="The day in India whose day-end the report describes.")
+    buckets: list[OverdueBucketRow]
