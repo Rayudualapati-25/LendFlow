@@ -15,8 +15,8 @@ repository:
 | Measure | Value |
 |---|---|
 | Endpoints | 26 |
-| Tests | 346, with 99.6% branch coverage |
-| Tables | 9 |
+| Tests | 355, with 99.6% branch coverage |
+| Tables | 10 |
 | Seeded loans | 74 |
 
 Endpoints are counted from the OpenAPI schema, tables from the SQLAlchemy models, and the
@@ -47,7 +47,7 @@ against the code, so they cannot drift.
       NPA), as of any day-end
 - [x] Prepayment and foreclosure, charging interest only for the days the money was owed
 - [x] Refresh tokens, rotated on every use, with reuse detection
-- [ ] A limit on repeated failed sign-ins
+- [x] A limit on repeated failed sign-ins
 - [ ] A one-click live demo on Render
 
 ## How it works
@@ -59,6 +59,7 @@ submitted ──review──▶ under_review ──decision──▶ approved �
 
 - **Signing in** returns a 30-minute access token and a refresh token that works once:
   each refresh hands out the next one, and replaying a used token ends the sign-in.
+  Five wrong passwords for one email in 15 minutes lock it (429 with `Retry-After`).
 - **Applicants** register, declare their income and other EMIs, and apply for a personal,
   vehicle or home loan. Each application quotes the product's rate and the EMI.
 - **Underwriters** take an application into review, then decide it with the applicant's
