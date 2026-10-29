@@ -83,3 +83,23 @@ class InstallmentOutOfOrder(DomainError):
 class DayNotEnded(DomainError):
     status_code = 422
     code = "day_not_ended"
+
+
+class InstallmentDue(DomainError):
+    status_code = 409
+    code = "installment_due"
+
+
+class PrepaymentTooLarge(DomainError):
+    status_code = 422
+    code = "prepayment_too_large"
+
+
+class RemainderTooSmall(DomainError):
+    status_code = 422
+    code = "remainder_too_small"
+
+
+class ForeclosureAmountChanged(DomainError):
+    status_code = 409
+    code = "foreclosure_amount_changed"

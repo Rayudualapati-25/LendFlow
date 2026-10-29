@@ -33,3 +33,11 @@ class DecisionOutcome(StrEnum):
 class InstallmentStatus(StrEnum):
     DUE = "due"
     PAID = "paid"
+
+
+class PrepaymentKind(StrEnum):
+    """Principal paid ahead of the schedule, and what happens to the rest of it."""
+
+    REDUCE_EMI = "reduce_emi"  # same end date, lower EMI
+    REDUCE_TENURE = "reduce_tenure"  # same EMI, earlier end date
+    FORECLOSURE = "foreclosure"  # everything owed: the loan closes

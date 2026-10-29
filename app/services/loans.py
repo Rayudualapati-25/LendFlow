@@ -113,12 +113,17 @@ def book_loan(
 def list_visible_to(session: Session, user: User, *, limit: int, offset: int) -> Sequence[Loan]:
     """Newest first. Applicants see only their own loans; underwriters see all.
 
-    A loan's status lives on its application and its schedule in its repayments, so both
-    are loaded up front: one query each for the whole page, not two per loan (N+1).
+    A loan's status lives on its application, its schedule in its repayments and its
+    prepayments in their own table, so all three are loaded up front: one query each for
+    the whole page, not three per loan (N+1).
     """
     query = (
         select(Loan)
-        .options(selectinload(Loan.application), selectinload(Loan.repayments))
+        .options(
+            selectinload(Loan.application),
+            selectinload(Loan.repayments),
+            selectinload(Loan.prepayments),
+        )
         .order_by(Loan.disbursed_at.desc(), Loan.id.desc())
         .limit(limit)
         .offset(offset)
