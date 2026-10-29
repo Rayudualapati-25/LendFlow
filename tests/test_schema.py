@@ -33,6 +33,7 @@ EXPECTED_TABLES = {
     "loans",
     "repayments",
     "prepayments",
+    "refresh_tokens",
     "audit_log",
 }
 

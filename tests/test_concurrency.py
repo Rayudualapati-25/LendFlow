@@ -16,10 +16,26 @@ import pytest
 from sqlalchemy import Engine, delete, func, select, text
 from sqlalchemy.orm import Session
 
+from app.config import Settings
 from app.domain.enums import ApplicationStatus, PrepaymentKind, Role
-from app.errors import IdempotencyKeyReused, IllegalTransition, PrepaymentTooLarge
-from app.models import Applicant, Application, AuditLog, Loan, Prepayment, Repayment, User
-from app.services import applications, loans, prepayments
+from app.errors import (
+    IdempotencyKeyReused,
+    IllegalTransition,
+    InvalidRefreshToken,
+    PrepaymentTooLarge,
+    RefreshTokenReused,
+)
+from app.models import (
+    Applicant,
+    Application,
+    AuditLog,
+    Loan,
+    Prepayment,
+    RefreshToken,
+    Repayment,
+    User,
+)
+from app.services import applications, loans, prepayments, sessions
 from app.services.lifecycle import lock_application, move
 from tests.factories import make_applicant, make_application, make_user
 
@@ -56,6 +72,7 @@ def committed(engine: Engine, request: pytest.FixtureRequest) -> Iterator[Commit
             )
             session.execute(delete(Application).where(Application.id.in_(ids.application_ids)))
             session.execute(delete(Applicant).where(Applicant.id == applicant_id))
+            session.execute(delete(RefreshToken).where(RefreshToken.user_id.in_(user_ids)))
             session.execute(delete(User).where(User.id.in_(user_ids)))
             session.commit()
 
@@ -348,3 +365,34 @@ def test_one_key_on_two_loans_at_once_prepays_only_one(
     with Session(engine) as session:
         untouched = session.get_one(Loan, second_loan)
         assert untouched.outstanding_principal == Decimal("100000.00")
+
+
+def test_two_refreshes_with_one_token_at_once_end_the_session(
+    engine: Engine, committed: Committed, settings: Settings
+) -> None:
+    with Session(engine, expire_on_commit=False) as session:
+        user = session.get_one(User, committed.underwriter_ids[0])
+        token, _ = sessions.start(session, user, now=NOW, settings=settings)
+
+    def second_refresh(session: Session) -> str:
+        try:
+            sessions.rotate(session, token, now=NOW, settings=settings)
+        except RefreshTokenReused:
+            return "reused"
+        return "rotated"
+
+    with Session(engine, expire_on_commit=False) as first:
+        # Hold the token's row, as a slow first refresh would, while the second arrives.
+        first.scalars(select(RefreshToken).with_for_update()).all()
+        racer = _Racer(engine, second_refresh)
+        racer.start()
+        _wait_until_blocked(engine, waiter=racer.pid.get(timeout=10), holder=_backend_pid(first))
+
+        _, next_token, _ = sessions.rotate(first, token, now=NOW, settings=settings)
+        racer.join(timeout=10)
+
+    # The second request saw the token already used: two holders, so the session is over,
+    # including the token the first request just received.
+    assert racer.outcome == "reused"
+    with Session(engine) as session, pytest.raises(InvalidRefreshToken):
+        sessions.rotate(session, next_token, now=NOW, settings=settings)

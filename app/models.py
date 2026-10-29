@@ -4,6 +4,7 @@ Money is NUMERIC(12, 2), never float. Timestamps are timezone-aware and stored i
 Invariants that must hold whatever the application code does are CHECK constraints.
 """
 
+import uuid
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
@@ -283,6 +284,33 @@ class Prepayment(Base):
     @property
     def amount(self) -> Decimal:
         return self.principal + self.interest
+
+
+class RefreshToken(Base):
+    """One refresh token of a sign-in session (D53).
+
+    Every token rotated from one sign-in shares a `family_id`. Only a SHA-256 digest of
+    the token is stored, so a copy of this table cannot be used to sign in.
+    """
+
+    __tablename__ = "refresh_tokens"
+    __table_args__ = (
+        CheckConstraint("expires_at > issued_at", name="expires_after_issue"),
+        CheckConstraint("expires_at <= session_expires_at", name="expires_within_session"),
+    )
+
+    id: Mapped[IntPK]
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    family_id: Mapped[uuid.UUID] = mapped_column(index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    issued_at: Mapped[Timestamp]
+    expires_at: Mapped[Timestamp]
+    # The sign-in's absolute end, carried over to every token rotated from it.
+    session_expires_at: Mapped[Timestamp]
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    user: Mapped[User] = relationship()
 
 
 class AuditLog(Base):
