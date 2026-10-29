@@ -11,9 +11,11 @@ class DomainError(Exception):
     code = "bad_request"
     headers: dict[str, str] | None = None
 
-    def __init__(self, message: str) -> None:
+    def __init__(self, message: str, *, headers: dict[str, str] | None = None) -> None:
         super().__init__(message)
         self.message = message
+        if headers is not None:
+            self.headers = headers
 
 
 class EmailAlreadyRegistered(DomainError):
@@ -116,3 +118,8 @@ class RefreshTokenReused(DomainError):
     status_code = 401
     code = "refresh_token_reused"
     headers = {"WWW-Authenticate": "Bearer"}  # noqa: RUF012 (read-only class constant)
+
+
+class TooManySignInAttempts(DomainError):
+    status_code = 429
+    code = "too_many_sign_in_attempts"

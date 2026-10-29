@@ -20,3 +20,6 @@ class Settings(DatabaseSettings):
     # A refresh token dies after a day unused; a sign-in lasts a week at most (D53).
     refresh_token_expire_days: int = Field(default=1, gt=0)
     session_max_days: int = Field(default=7, gt=0)
+    # Five failed sign-ins for one email within 15 minutes lock it until one expires (D54).
+    sign_in_max_failures: int = Field(default=5, gt=0)
+    sign_in_window_minutes: int = Field(default=15, gt=0)
