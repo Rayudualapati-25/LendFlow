@@ -34,6 +34,7 @@ EXPECTED_TABLES = {
     "repayments",
     "prepayments",
     "refresh_tokens",
+    "sign_in_failures",
     "audit_log",
 }
 
