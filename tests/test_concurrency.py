@@ -8,6 +8,7 @@ import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from decimal import Decimal
 from queue import Queue
 from threading import Thread
 
@@ -15,10 +16,10 @@ import pytest
 from sqlalchemy import Engine, delete, func, select, text
 from sqlalchemy.orm import Session
 
-from app.domain.enums import ApplicationStatus, Role
-from app.errors import IdempotencyKeyReused, IllegalTransition
-from app.models import Applicant, Application, AuditLog, Loan, Repayment, User
-from app.services import applications, loans
+from app.domain.enums import ApplicationStatus, PrepaymentKind, Role
+from app.errors import IdempotencyKeyReused, IllegalTransition, PrepaymentTooLarge
+from app.models import Applicant, Application, AuditLog, Loan, Prepayment, Repayment, User
+from app.services import applications, loans, prepayments
 from app.services.lifecycle import lock_application, move
 from tests.factories import make_applicant, make_application, make_user
 
@@ -47,6 +48,7 @@ def committed(engine: Engine, request: pytest.FixtureRequest) -> Iterator[Commit
     finally:
         with Session(engine) as session:
             booked = select(Loan.id).where(Loan.application_id.in_(ids.application_ids))
+            session.execute(delete(Prepayment).where(Prepayment.loan_id.in_(booked)))
             session.execute(delete(Repayment).where(Repayment.loan_id.in_(booked)))
             session.execute(delete(Loan).where(Loan.application_id.in_(ids.application_ids)))
             session.execute(
@@ -228,3 +230,121 @@ def test_one_key_on_two_applications_at_once_books_only_one_loan(
     assert _loans_for(engine, second_application) == 0
     with Session(engine) as session:
         assert session.get_one(Application, second_application).status == ApplicationStatus.APPROVED
+
+
+def _disbursed(engine: Engine, committed: Committed) -> tuple[int, int]:
+    """Disburse both applications (Rs 1,00,000 each) and return the two loan ids."""
+    with Session(engine, expire_on_commit=False) as session:
+        underwriter = session.get_one(User, committed.underwriter_ids[0])
+        booked = [
+            loans.disburse(
+                session, underwriter, application_id, idempotency_key=f"loan-{n}", now=NOW
+            )[0]
+            for n, application_id in enumerate(committed.application_ids)
+        ]
+    return booked[0].id, booked[1].id
+
+
+def _prepaid(engine: Engine, loan_id: int) -> list[Decimal]:
+    with Session(engine) as session:
+        return list(
+            session.scalars(select(Prepayment.principal).where(Prepayment.loan_id == loan_id))
+        )
+
+
+@pytest.mark.parametrize("committed", [ApplicationStatus.APPROVED], indirect=True)
+def test_a_second_prepayment_waits_for_the_first_and_sees_the_lower_balance(
+    engine: Engine, committed: Committed
+) -> None:
+    loan_id, _ = _disbursed(engine, committed)
+    first_id, second_id = committed.underwriter_ids
+
+    def second_prepayment(session: Session) -> str:
+        underwriter = session.get_one(User, second_id)
+        try:
+            prepayments.prepay(
+                session,
+                underwriter,
+                loan_id,
+                principal=Decimal("60000.00"),
+                reduce="emi",
+                idempotency_key="second",
+                now=NOW,
+            )
+        except PrepaymentTooLarge:
+            return "too large"
+        return "prepaid"
+
+    with Session(engine, expire_on_commit=False) as first:
+        lock_application(first, committed.application_ids[0])
+        racer = _Racer(engine, second_prepayment)
+        racer.start()
+        _wait_until_blocked(engine, waiter=racer.pid.get(timeout=10), holder=_backend_pid(first))
+
+        prepayments.prepay(
+            first,
+            first.get_one(User, first_id),
+            loan_id,
+            principal=Decimal("60000.00"),
+            reduce="emi",
+            idempotency_key="first",
+            now=NOW,
+        )
+        racer.join(timeout=10)
+
+    # Rs 40,000 was left after the first, so a second Rs 60,000 is refused instead of
+    # both reading Rs 1,00,000 and prepaying more than was lent.
+    assert racer.outcome == "too large"
+    assert _prepaid(engine, loan_id) == [Decimal("60000.00")]
+
+
+@pytest.mark.parametrize("committed", [ApplicationStatus.APPROVED], indirect=True)
+def test_one_key_on_two_loans_at_once_prepays_only_one(
+    engine: Engine, committed: Committed
+) -> None:
+    first_loan, second_loan = _disbursed(engine, committed)
+    first_id, second_id = committed.underwriter_ids
+
+    def second_prepayment(session: Session) -> str:
+        underwriter = session.get_one(User, second_id)
+        try:
+            prepayments.prepay(
+                session,
+                underwriter,
+                second_loan,
+                principal=Decimal("10000.00"),
+                reduce="emi",
+                idempotency_key="shared",
+                now=NOW,
+            )
+        except IdempotencyKeyReused:
+            return "key reused"
+        return "prepaid"
+
+    with Session(engine, expire_on_commit=False) as first:
+        # Record the first prepayment but leave its transaction open: the key is not yet
+        # visible to the second request's lookup, so only the unique index can stop it.
+        first.add(
+            Prepayment(
+                loan_id=first_loan,
+                kind=PrepaymentKind.REDUCE_EMI,
+                principal=Decimal("10000.00"),
+                interest=Decimal("0.00"),
+                idempotency_key="shared",
+                received_by_id=first_id,
+                received_at=NOW,
+            )
+        )
+        first.flush()
+        racer = _Racer(engine, second_prepayment)
+        racer.start()
+        _wait_until_blocked(engine, waiter=racer.pid.get(timeout=10), holder=_backend_pid(first))
+
+        first.commit()
+        racer.join(timeout=10)
+
+    assert racer.outcome == "key reused"
+    assert _prepaid(engine, second_loan) == []
+    with Session(engine) as session:
+        untouched = session.get_one(Loan, second_loan)
+        assert untouched.outstanding_principal == Decimal("100000.00")

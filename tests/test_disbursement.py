@@ -67,6 +67,7 @@ def test_disbursing_books_the_loan_and_its_schedule(
         "status": "disbursed",
         "outstanding_principal": "100000.00",
         "disbursed_at": "2026-10-31T23:00:00Z",
+        "prepayments": [],
     }
     assert len(loan["schedule"]) == 12
     first, last = loan["schedule"][0], loan["schedule"][-1]

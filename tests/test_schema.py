@@ -32,6 +32,7 @@ EXPECTED_TABLES = {
     "decisions",
     "loans",
     "repayments",
+    "prepayments",
     "audit_log",
 }
 
