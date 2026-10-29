@@ -5,12 +5,13 @@ from datetime import UTC, datetime
 from typing import Annotated
 
 import jwt
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 
 from app.config import Settings
 from app.db import SessionDep
 from app.domain.enums import Role
+from app.errors import IdempotencyKeyRequired
 from app.models import User
 from app.security import read_access_token
 
@@ -64,3 +65,21 @@ def _require_role(role: Role) -> Callable[[User], User]:
 
 ApplicantUser = Annotated[User, Depends(_require_role(Role.APPLICANT))]
 UnderwriterUser = Annotated[User, Depends(_require_role(Role.UNDERWRITER))]
+
+
+def idempotency_key(
+    key: Annotated[
+        str | None,
+        Header(
+            alias="Idempotency-Key",
+            description="Unique per payment, such as a UUID. Retries must reuse it.",
+        ),
+    ] = None,
+) -> str:
+    """The client's key for an operation that moves money, so a retry cannot repeat it (D41)."""
+    if not key or len(key) > 255:
+        raise IdempotencyKeyRequired("Send an Idempotency-Key header of 1 to 255 characters")
+    return key
+
+
+IdempotencyKey = Annotated[str, Depends(idempotency_key)]

@@ -27,7 +27,14 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-from app.domain.enums import ApplicationStatus, DecisionOutcome, InstallmentStatus, Product, Role
+from app.domain.enums import (
+    ApplicationStatus,
+    DecisionOutcome,
+    InstallmentStatus,
+    PrepaymentKind,
+    Product,
+    Role,
+)
 
 # Predictable names keep migrations reviewable and make constraint errors easy to trace.
 NAMING_CONVENTION = {
@@ -158,7 +165,12 @@ class Decision(Base):
 
 
 class Loan(Base):
-    """The booked contract, created when an approved application is disbursed."""
+    """The loan account, booked when an approved application is disbursed.
+
+    Principal and rate never change. `emi` and `tenure_months` describe the repayment plan
+    in force: a prepayment can lower the EMI or shorten the tenure (D50). The application
+    keeps the terms as approved.
+    """
 
     __tablename__ = "loans"
     __table_args__ = (
@@ -183,14 +195,18 @@ class Loan(Base):
     repayments: Mapped[list["Repayment"]] = relationship(
         back_populates="loan", order_by="Repayment.installment_number"
     )
+    prepayments: Mapped[list["Prepayment"]] = relationship(
+        back_populates="loan", order_by="Prepayment.id"
+    )
 
     @property
     def status(self) -> ApplicationStatus:
-        """A loan is `disbursed` until its last instalment is paid, then `closed` (D9)."""
+        """A loan is `disbursed` until it is repaid or foreclosed, then `closed` (D9)."""
         return self.application.status
 
     @property
     def outstanding_principal(self) -> Decimal:
+        """Principal minus what instalments and prepayments have repaid (D46)."""
         repaid = sum(
             (
                 row.principal_component
@@ -199,7 +215,8 @@ class Loan(Base):
             ),
             Decimal(0),
         )
-        return self.principal - repaid
+        prepaid = sum((row.principal for row in self.prepayments), Decimal(0))
+        return self.principal - repaid - prepaid
 
 
 class Repayment(Base):
@@ -236,6 +253,36 @@ class Repayment(Base):
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     loan: Mapped[Loan] = relationship(back_populates="repayments")
+
+
+class Prepayment(Base):
+    """Principal paid ahead of the schedule, with interest for the days it was owed (D51).
+
+    A part prepayment rewrites the unpaid instalments; a foreclosure pays everything owed
+    and replaces them. Paid instalments are never changed.
+    """
+
+    __tablename__ = "prepayments"
+    __table_args__ = (
+        CheckConstraint("principal > 0", name="principal_positive"),
+        CheckConstraint("interest >= 0", name="interest_non_negative"),
+    )
+
+    id: Mapped[IntPK]
+    loan_id: Mapped[int] = mapped_column(ForeignKey("loans.id"), index=True)
+    kind: Mapped[PrepaymentKind] = mapped_column(_enum(PrepaymentKind, "prepayment_kind"))
+    principal: Mapped[Money]
+    interest: Mapped[Money]
+    # Client-supplied key that makes a retried prepayment return the first result (D52).
+    idempotency_key: Mapped[str] = mapped_column(String(255), unique=True)
+    received_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    received_at: Mapped[Timestamp]
+
+    loan: Mapped[Loan] = relationship(back_populates="prepayments")
+
+    @property
+    def amount(self) -> Decimal:
+        return self.principal + self.interest
 
 
 class AuditLog(Base):

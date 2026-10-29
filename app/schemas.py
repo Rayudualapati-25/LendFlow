@@ -25,6 +25,7 @@ from app.domain.enums import (
     ApplicationStatus,
     DecisionOutcome,
     InstallmentStatus,
+    PrepaymentKind,
     Product,
     Role,
 )
@@ -179,21 +180,53 @@ class InstallmentOut(ResponseBody):
     paid_at: datetime | None
 
 
+class PrepaymentOut(ResponseBody):
+    kind: PrepaymentKind
+    principal: Decimal
+    interest: Decimal = Field(description="Interest on the principal for the days it was owed.")
+    amount: Decimal
+    received_at: datetime
+
+
 class LoanOut(ResponseBody):
     id: int
     application_id: int
     principal: Decimal
     annual_rate_pct: Decimal
-    tenure_months: int
-    emi: Decimal
+    tenure_months: int = Field(description="Instalments in the repayment plan in force.")
+    emi: Decimal = Field(description="The regular instalment of the plan in force.")
     status: ApplicationStatus
     outstanding_principal: Decimal
     disbursed_at: datetime
     schedule: list[InstallmentOut] = Field(validation_alias="repayments")
+    prepayments: list[PrepaymentOut]
 
 
 class RepaymentRequest(RequestBody):
     installment_number: int = Field(ge=1, description="Which instalment this payment settles.")
+
+
+class PrepaymentRequest(RequestBody):
+    principal: Annotated[Money, Field(gt=0, description="Principal to repay ahead of time.")]
+    reduce: Literal["emi", "tenure"] = Field(
+        description="Lower the EMI and keep the end date, or keep the EMI and finish sooner."
+    )
+
+
+class ForeclosureQuote(BaseModel):
+    loan_id: int
+    principal: Decimal = Field(description="Principal still owed.")
+    interest: Decimal = Field(description="Interest for the days of this EMI period so far.")
+    amount: Decimal = Field(description="What closes the loan today.")
+    interest_days: int
+    period_days: int
+    valid_on: date = Field(description="The day in India the quote is for.")
+
+
+class ForeclosureRequest(RequestBody):
+    amount: Annotated[
+        Money, Field(gt=0, description="Today's amount from GET /loans/{id}/foreclosure.")
+    ]
 
 
 # Reports

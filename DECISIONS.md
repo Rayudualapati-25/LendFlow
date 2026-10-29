@@ -8,8 +8,9 @@ Contents: [Service and tooling](#service-and-tooling) (D1–D7) ·
 [Data model](#data-model) (D8–D18) · [Authentication](#authentication) (D19–D24) ·
 [Business rules](#business-rules) (D25–D27) · [Applications](#applications) (D28–D32) ·
 [Lifecycle](#lifecycle) (D33–D35) · [Credit decisions](#credit-decisions) (D36–D40) ·
-[Disbursal and repayment](#disbursal-and-repayment) (D41–D43) · [Reports](#reports)
-(D44–D46, D49) · [Demo data and operations](#demo-data-and-operations) (D47–D48)
+[Disbursal and repayment](#disbursal-and-repayment) (D41–D43, D50–D52) ·
+[Reports](#reports) (D44–D46, D49) · [Demo data and operations](#demo-data-and-operations)
+(D47–D48)
 
 ## Service and tooling
 
@@ -168,8 +169,9 @@ Contents: [Service and tooling](#service-and-tooling) (D1–D7) ·
   instalments.
 - **Why.** The MVP accepts only whole EMIs, so one payment always settles exactly one
   instalment.
-- **With hindsight.** Partial payments, prepayments or late fees need payments as their
-  own records and an allocation step.
+- **With hindsight.** Prepayments became their own records (D50) without an allocation
+  step, because they repay principal only. Partial EMIs and late fees would still need
+  payments as their own records, allocated across what is due.
 
 ### D15. The audit log is keyed by application, with a foreign key
 
@@ -522,9 +524,10 @@ Contents: [Service and tooling](#service-and-tooling) (D1–D7) ·
   allocated to whatever is due.
 - **Why.** Naming the instalment makes a retried payment a harmless 409 instead of a second
   charge: idempotent by design without another key. Whole-EMI payments match D14.
-- **With hindsight.** Partial payments, prepayment and overdue tracking (days past due)
-  need payments as their own records with an allocation step, and a payment gateway's
-  callbacks would carry their own idempotency keys.
+- **With hindsight.** Overdue tracking (D49) and prepayment (D50) fitted without changing
+  this: days past due come from due dates and payment times, and a prepayment is its own
+  record with its own key. Partial EMIs would still need an allocation step, and a
+  payment gateway's callbacks would carry their own idempotency keys.
 
 ### D43. Timestamps are UTC; due dates are Indian business dates
 
@@ -536,6 +539,82 @@ Contents: [Service and tooling](#service-and-tooling) (D1–D7) ·
   borrower; the UTC date would schedule every EMI a day early.
 - **With hindsight.** A lender working across countries would keep a business time zone per
   entity or product rather than a constant.
+
+### D50. Prepayments are their own records, and only the unpaid schedule is rebuilt
+
+- **Decision.** `POST /loans/{id}/prepayments` repays part of the principal ahead of time,
+  with a choice: `"reduce": "emi"` keeps the end date with a lower EMI, `"reduce": "tenure"`
+  keeps the EMI and ends sooner. It is allowed once every EMI due so far is paid (409
+  `installment_due` otherwise) and must leave something owed (422 `prepayment_too_large`;
+  foreclose instead, D52). A `prepayments` row records the principal, the interest (D51),
+  who paid and when. The unpaid instalments are rewritten in place; paid ones never change.
+  The loan's `emi` and `tenure_months` now describe the plan in force, while the
+  application keeps the terms as approved. Outstanding principal, in the loan API and in
+  both reports, is the principal minus the principal of paid instalments and of
+  prepayments; the overdue report counts a prepayment from the day it was received.
+- **Alternative.** A general payments table with an allocation step (D14's hindsight); one
+  option only, as many lenders default to a shorter tenure; or versioned schedules.
+- **Why.** A prepayment repays principal only, so nothing needs allocating across
+  instalments, and one row per prepayment is enough. Offering both options shows the
+  trade-off a borrower actually faces. On the Rs 1,00,000 test loan, prepaying Rs 20,000
+  after three EMIs leaves Rs 3,334.32 of interest to pay if the EMI is lowered, and
+  Rs 2,517.97 if the EMI is kept and the loan ends two months sooner. The audit entry
+  records the EMI and the instalments left, before and after.
+- **With hindsight.** Lowering the EMI fails when very little is left over many months:
+  Rs 896 over 352 months gives an EMI so small that paisa rounding repays it early. The
+  API answers 422 `remainder_too_small` and suggests keeping the EMI; a minimum
+  prepayment amount would avoid the case. Versioned schedules would make the plan before a
+  prepayment queryable rather than only recorded in the audit log.
+
+### D51. Interest only for the days the prepaid principal was owed, and no prepayment fee
+
+- **Decision.** Principal paid during an EMI period (from the last due date, or the
+  disbursal date, to the next due date) carries interest for the days of that period that
+  have passed: principal x monthly rate x days passed / days in the period. The rebuilt
+  schedule then charges each future month's interest on the lower balance. No prepayment
+  or foreclosure fee is charged.
+- **Alternative.** Credit the prepayment at the next due date, charging the whole month's
+  interest on the old balance; a daily rate (annual / 365) for part-periods; or a fee.
+- **Why.** RBI's April 2024 circular on charging of interest names "charging interest for
+  the entire month" on a loan repaid during the month as an unfair practice: interest is
+  due only for the period the loan was outstanding
+  ([RBI/2024-25/30](https://www.rbi.org.in/Scripts/NotificationUser.aspx?Id=12678)).
+  Spreading the monthly rate over the period's days keeps the schedule consistent: a whole
+  period still costs exactly one month's interest, whether it has 28 days or 31. RBI's
+  2025 directions bar pre-payment charges on floating-rate loans to individuals sanctioned
+  from 1 January 2026, and require any other charge to be disclosed upfront
+  ([RBI/2025-26/64](https://www.rbi.org.in/scripts/NotificationUser.aspx?Id=12878)).
+  LendFlow's rates are fixed at submission, but it charges nothing.
+- **With hindsight.** Interest accrued daily on the actual balance, as most lenders now
+  compute it, would make part-periods fall out naturally instead of being a special case.
+  A fee schedule per product, disclosed in the sanction letter, is what a real lender
+  with fixed-rate products would add.
+
+### D52. Foreclosure is quoted, then confirmed; every payment ahead takes an idempotency key
+
+- **Decision.** `GET /loans/{id}/foreclosure` quotes today's amount: the principal owed
+  plus interest for the days of the current EMI period (D51). `POST /loans/{id}/foreclosure`
+  sends that amount back. A different amount, such as yesterday's quote, is a 409
+  `foreclosure_amount_changed` and nothing is paid. Foreclosing deletes the unpaid
+  instalments, records a `foreclosure` prepayment and moves the application from disbursed
+  to closed through the transition table, with its audit entry. Both endpoints that pay
+  ahead require an `Idempotency-Key`, now a shared dependency that disbursal uses too. The
+  key is stored on the prepayment under a unique index: a retry is replayed (200 with
+  `Idempotent-Replayed: true`), and the same key for another loan, kind or amount is a 422.
+  Both lock the application row first, so prepayments, repayments and foreclosure on one
+  loan take turns. Tests on two real connections show a second Rs 60,000 prepayment
+  waiting and then being refused because only Rs 40,000 is left, and one key used on two
+  loans at once prepaying only one of them.
+- **Alternative.** Foreclose for whatever is owed when the request arrives; or make
+  prepayments idempotent by naming something, as repayments name their instalment (D42).
+- **Why.** Interest grows daily, so the amount paid must be the amount the borrower was
+  shown. A prepayment has no instalment to name, so a retry after a timeout would pay
+  twice without a key. Closing through the normal transition reuses the lock, the audit
+  entry and the 409 rules.
+- **With hindsight.** With three endpoints keyed, a generic idempotency store (D41's
+  hindsight) is closer to paying for itself, especially once payments arrive from a
+  gateway. Foreclosure needs any EMI already due to be paid first; a real lender would
+  quote the overdue EMIs and the principal as one amount.
 
 ## Reports
 
@@ -566,8 +645,9 @@ Contents: [Service and tooling](#service-and-tooling) (D1–D7) ·
 ### D46. Outstanding is principal minus principal repaid, on disbursed loans
 
 - **Decision.** For each loan whose application is `disbursed`, outstanding is the
-  principal minus the principal part of its paid instalments. Products are compared with
-  `SUM() OVER ()` for their share of the book and `RANK()`.
+  principal minus the principal part of its paid instalments and of any prepayments
+  (D50). Products are compared with `SUM() OVER ()` for their share of the book and
+  `RANK()`.
 - **Alternative.** Take the closing balance of the last paid instalment, or include
   interest still due.
 - **Why.** Summing repaid principal does not depend on payment order and matches the loan

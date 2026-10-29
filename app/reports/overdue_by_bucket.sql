@@ -9,6 +9,7 @@
 --
 -- book        : loans disbursed by the end of the day
 -- instalments : their instalments, and whether each had been paid by then
+-- prepaid     : principal paid ahead of the schedule by then (a foreclosure pays it all)
 -- per_loan    : principal still owed, the oldest overdue due date and the overdue amount;
 --               loans that owed nothing by then had been repaid and are left out
 -- classified  : each loan's days past due and bucket
@@ -33,10 +34,17 @@ instalments AS (
     FROM repayments
     JOIN book ON book.id = repayments.loan_id
 ),
+prepaid AS (
+    SELECT loan_id, sum(principal) AS principal
+    FROM prepayments
+    WHERE (received_at AT TIME ZONE 'Asia/Kolkata')::date <= :as_of
+    GROUP BY loan_id
+),
 per_loan AS (
     SELECT
         book.principal
             - coalesce(sum(instalments.principal_component) FILTER (WHERE paid), 0.00)
+            - coalesce(prepaid.principal, 0.00)
             AS outstanding,
         min(instalments.due_date) FILTER (WHERE NOT paid AND due_date <= :as_of)
             AS oldest_overdue,
@@ -45,7 +53,8 @@ per_loan AS (
         ) AS overdue
     FROM book
     LEFT JOIN instalments ON instalments.loan_id = book.id
-    GROUP BY book.id, book.principal
+    LEFT JOIN prepaid ON prepaid.loan_id = book.id
+    GROUP BY book.id, book.principal, prepaid.principal
 ),
 classified AS (
     SELECT

@@ -1,11 +1,16 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Header, Query, Response, status
+from fastapi import APIRouter, Query, Response, status
 
 from app.db import SessionDep
-from app.dependencies import ApplicantUser, CurrentUser, NowDep, UnderwriterUser
+from app.dependencies import (
+    ApplicantUser,
+    CurrentUser,
+    IdempotencyKey,
+    NowDep,
+    UnderwriterUser,
+)
 from app.domain.enums import ApplicationStatus
-from app.errors import IdempotencyKeyRequired
 from app.schemas import (
     ApplicationOut,
     ApplicationRequest,
@@ -125,18 +130,13 @@ def disburse(
     session: SessionDep,
     now: NowDep,
     response: Response,
-    idempotency_key: Annotated[
-        str | None,
-        Header(description="Unique per disbursal, such as a UUID. Retries must reuse it."),
-    ] = None,
+    idempotency_key: IdempotencyKey,
 ) -> LoanOut:
     """Book the loan and its EMI schedule (approved -> disbursed). Safe to retry.
 
     A retry with the same Idempotency-Key returns the original loan, marked with an
     `Idempotent-Replayed: true` header; the same key on another application is a 422.
     """
-    if not idempotency_key or len(idempotency_key) > 255:
-        raise IdempotencyKeyRequired("Send an Idempotency-Key header of 1 to 255 characters")
     loan, replayed = loans.disburse(
         session, underwriter, application_id, idempotency_key=idempotency_key, now=now
     )

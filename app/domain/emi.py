@@ -44,39 +44,85 @@ def calculate_emi(principal: Decimal, annual_rate_pct: Decimal, tenure_months: i
 
 
 def amortization_schedule(
-    principal: Decimal, annual_rate_pct: Decimal, tenure_months: int, start: date
+    principal: Decimal,
+    annual_rate_pct: Decimal,
+    tenure_months: int,
+    start: date,
+    *,
+    first_number: int = 1,
 ) -> list[Installment]:
-    """Every instalment of the loan; the first falls due one month after `start`.
+    """Every instalment of the loan; instalment n falls due n months after `start`.
+
+    `first_number` continues a loan part-way through, as after a prepayment: `principal`
+    is then the balance still owed and `tenure_months` the instalments left.
 
     Raises ValueError for terms so extreme that rounding the EMI to the paisa, compounded
     over the loan, adds up to more than a whole instalment, so the loan would be repaid
     before its last month (for example Rs 1,000 at 17.71% over 335 months). No product
-    offers terms like these.
+    offers terms like these, but a small balance left after a prepayment can be.
     """
     emi = calculate_emi(principal, annual_rate_pct, tenure_months)
     monthly_rate = annual_rate_pct / 1200
     balance = principal
+    last = first_number + tenure_months - 1
     schedule = []
-    for number in range(1, tenure_months + 1):
+    for number in range(first_number, last + 1):
         interest = to_paise(balance * monthly_rate)
-        if number == tenure_months:
+        if number == last:
             repaid = balance
         else:
             repaid = emi - interest
             if repaid >= balance:
                 raise ValueError("rounding drift would repay this loan before its last month")
         balance -= repaid
-        schedule.append(
-            Installment(
-                number=number,
-                due_date=add_months(start, number),
-                amount_due=repaid + interest,
-                principal=repaid,
-                interest=interest,
-                closing_balance=balance,
-            )
-        )
+        schedule.append(_installment(number, start, repaid, interest, balance))
     return schedule
+
+
+def schedule_at_emi(
+    balance: Decimal,
+    annual_rate_pct: Decimal,
+    emi: Decimal,
+    start: date,
+    *,
+    first_number: int,
+    max_installments: int,
+) -> list[Installment]:
+    """Instalments of `emi` from instalment `first_number` until `balance` is repaid.
+
+    Keeping the EMI after a prepayment finishes the loan sooner; the last instalment pays
+    whatever is left. It never runs past `max_installments`: if rounding would need one
+    more month, the last allowed instalment pays the rest instead.
+    """
+    monthly_rate = annual_rate_pct / 1200
+    last_allowed = first_number + max_installments - 1
+    schedule = []
+    number = first_number
+    while balance > 0:
+        interest = to_paise(balance * monthly_rate)
+        if number == last_allowed or balance + interest <= emi:
+            repaid = balance
+        else:
+            repaid = emi - interest
+            if repaid <= 0:
+                raise ValueError("the EMI does not cover the interest")
+        balance -= repaid
+        schedule.append(_installment(number, start, repaid, interest, balance))
+        number += 1
+    return schedule
+
+
+def _installment(
+    number: int, start: date, repaid: Decimal, interest: Decimal, balance: Decimal
+) -> Installment:
+    return Installment(
+        number=number,
+        due_date=add_months(start, number),
+        amount_due=repaid + interest,
+        principal=repaid,
+        interest=interest,
+        closing_balance=balance,
+    )
 
 
 def add_months(day: date, months: int) -> date:
