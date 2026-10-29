@@ -17,3 +17,6 @@ class Settings(DatabaseSettings):
     # 32 characters gives the 256-bit key that HS256 needs (RFC 7518, section 3.2).
     jwt_secret: SecretStr = Field(min_length=32)
     access_token_expire_minutes: int = Field(default=30, gt=0)
+    # A refresh token dies after a day unused; a sign-in lasts a week at most (D53).
+    refresh_token_expire_days: int = Field(default=1, gt=0)
+    session_max_days: int = Field(default=7, gt=0)

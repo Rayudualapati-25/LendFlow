@@ -13,7 +13,9 @@ from app.routers import applicants, applications, auth, health, loans, products,
 
 async def handle_domain_error(_: Request, error: DomainError) -> JSONResponse:
     return JSONResponse(
-        status_code=error.status_code, content={"detail": error.message, "code": error.code}
+        status_code=error.status_code,
+        content={"detail": error.message, "code": error.code},
+        headers=error.headers,
     )
 
 

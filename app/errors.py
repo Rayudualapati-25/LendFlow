@@ -9,6 +9,7 @@ and a stable code that clients can branch on. This module has no web dependencie
 class DomainError(Exception):
     status_code = 400
     code = "bad_request"
+    headers: dict[str, str] | None = None
 
     def __init__(self, message: str) -> None:
         super().__init__(message)
@@ -103,3 +104,15 @@ class RemainderTooSmall(DomainError):
 class ForeclosureAmountChanged(DomainError):
     status_code = 409
     code = "foreclosure_amount_changed"
+
+
+class InvalidRefreshToken(DomainError):
+    status_code = 401
+    code = "invalid_refresh_token"
+    headers = {"WWW-Authenticate": "Bearer"}  # noqa: RUF012 (read-only class constant)
+
+
+class RefreshTokenReused(DomainError):
+    status_code = 401
+    code = "refresh_token_reused"
+    headers = {"WWW-Authenticate": "Bearer"}  # noqa: RUF012 (read-only class constant)

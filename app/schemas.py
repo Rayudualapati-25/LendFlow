@@ -73,7 +73,13 @@ class UserOut(ResponseBody):
 class Token(BaseModel):
     access_token: str
     token_type: Literal["bearer"] = "bearer"  # noqa: S105 (a token type, not a secret)
-    expires_in: int = Field(description="Seconds until the token expires.")
+    expires_in: int = Field(description="Seconds until the access token expires.")
+    refresh_token: str = Field(description="Exchange at /auth/refresh; it works once.")
+    refresh_expires_in: int = Field(description="Seconds until the refresh token expires.")
+
+
+class RefreshRequest(RequestBody):
+    refresh_token: str = Field(min_length=1, max_length=255)
 
 
 # Applicant profile
