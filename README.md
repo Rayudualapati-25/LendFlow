@@ -122,12 +122,12 @@ replayed through the same code as the API. Sign in from `/docs` with **Authorize
 
 The demo applicant's first request (₹2,10,000 over 6 months) was refused with
 `FOIR_ABOVE_LIMIT`; the same amount over 12 months was approved and disbursed. These
-credentials exist only in the local demo data.
+credentials exist only in the local demo data. `python scripts/smoke_test.py` checks a running
+stack end to end.
 
 The demo year ends on 26 October 2026. `GET /reports/overdue-by-bucket?as_of=2026-10-26`
 shows the book that day: 62 loans current, 1 in SMA-2 and 3 NPA, from borrowers who
-stopped paying. Later days show EMIs falling due that nobody has paid yet. `python scripts/smoke_test.py` checks a running
-stack end to end.
+stopped paying. Later days show EMIs falling due that nobody has paid yet.
 
 Create a real underwriter account with `docker compose exec api python -m app.cli
 create-underwriter EMAIL`; it prompts for the password without echoing it.
