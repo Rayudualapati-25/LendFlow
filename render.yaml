@@ -1,0 +1,36 @@
+# Render Blueprint for the public demo: the API built from the Dockerfile and a PostgreSQL 16
+# database, both on Render's free plan and in Singapore, the region nearest India (D55).
+# Create it with the "Deploy to Render" button in the README. Schema:
+# https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: lendflow-api
+    runtime: docker
+    plan: free
+    region: singapore
+    healthCheckPath: /health
+    envVars:
+      # Render's URL starts postgres://; app.config names the psycopg driver itself.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: lendflow-db
+          property: connectionString
+      # A random 256-bit value, generated once by Render and never stored in the repository.
+      - key: JWT_SECRET
+        generateValue: true
+      # The demo logins in the README. This deployment holds demo data only.
+      - key: SEED_DEMO_DATA
+        value: "true"
+      # Render's proxy terminates HTTPS; trust its forwarded headers so URLs stay https.
+      - key: FORWARDED_ALLOW_IPS
+        value: "*"
+
+databases:
+  - name: lendflow-db
+    plan: free
+    region: singapore
+    databaseName: lendflow
+    user: lendflow
+    postgresMajorVersion: "16"
+    # Reachable only from Render's private network, that is, from the API.
+    ipAllowList: []

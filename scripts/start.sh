@@ -11,4 +11,5 @@ if [ "${SEED_DEMO_DATA:-false}" = "true" ]; then
 fi
 
 # exec replaces the shell, so uvicorn receives SIGTERM directly and shuts down cleanly.
-exec uvicorn app.main:create_app --factory --host 0.0.0.0 --port 8000
+# Hosts such as Render choose the port through $PORT; Compose leaves it at 8000.
+exec uvicorn app.main:create_app --factory --host 0.0.0.0 --port "${PORT:-8000}"
