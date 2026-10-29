@@ -1,4 +1,4 @@
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -8,6 +8,16 @@ class DatabaseSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     database_url: str = "postgresql+psycopg://lendflow:lendflow@localhost:5432/lendflow"
+
+    @field_validator("database_url")
+    @classmethod
+    def _name_the_driver(cls, url: str) -> str:
+        """Hosts such as Render give `postgres://` or `postgresql://` URLs, for which
+        SQLAlchemy would load psycopg2. This project uses psycopg 3, so name it (D55)."""
+        for scheme in ("postgres://", "postgresql://"):
+            if url.startswith(scheme):
+                return "postgresql+psycopg://" + url.removeprefix(scheme)
+        return url
 
 
 class Settings(DatabaseSettings):
