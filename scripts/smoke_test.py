@@ -13,6 +13,7 @@ from typing import Any
 
 BASE = sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8000"
 DEMO_PASSWORD = "lendflow-demo-password"  # noqa: S105 (the documented local demo password)
+DEMO_LAST_DAY = "2026-10-26"
 
 
 def call(path: str, *, token: str = "", form: dict[str, str] | None = None) -> Any:
@@ -40,7 +41,9 @@ def main() -> None:
     underwriter = sign_in("underwriter@example.com")
     months = call("/reports/approval-rate", token=underwriter)
     products = call("/reports/outstanding-by-product", token=underwriter)
-    overdue = call("/reports/overdue-by-bucket", token=underwriter)
+    # The book on the demo year's last day (app.seed.DEFAULT_UNTIL): unlike today's, nothing
+    # done on the stack since then can change it.
+    overdue = call(f"/reports/overdue-by-bucket?as_of={DEMO_LAST_DAY}", token=underwriter)
     loans = call("/loans", token=sign_in("applicant@example.com"))
 
     check(len(months) >= 12, f"expected a year of decisions, got {len(months)} months")
@@ -48,14 +51,14 @@ def main() -> None:
         {row["product"] for row in products} == {"personal", "vehicle", "home"},
         f"expected outstanding loans for every product, got {products}",
     )
-    active = sum(row["active_loans"] for row in products)
-    # Nothing is paid after the demo year ends, so every active loan is on yesterday's book.
-    on_book = sum(row["loans"] for row in overdue["buckets"])
-    check(on_book == active, f"overdue report has {on_book} loans, expected {active}")
+    buckets = {row["bucket"]: row["loans"] for row in overdue["buckets"]}
+    check(buckets.get("npa", 0) > 0, f"expected NPAs from borrowers who stopped paying: {buckets}")
     check(len(loans) >= 1, "the demo applicant should have a loan")
+    active = sum(row["active_loans"] for row in products)
     print(
-        f"OK: {len(months)} months of decisions, {active} active loans "
-        f"(overdue report as of {overdue['as_of']} agrees), demo login works"
+        f"OK: {len(months)} months of decisions, {active} active loans, "
+        f"{sum(buckets.values())} on the {DEMO_LAST_DAY} book ({buckets['npa']} NPA), "
+        "demo login works"
     )
 
 
