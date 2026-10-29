@@ -24,6 +24,7 @@ from app.errors import (
     InvalidRefreshToken,
     PrepaymentTooLarge,
     RefreshTokenReused,
+    TooManySignInAttempts,
 )
 from app.models import (
     Applicant,
@@ -33,9 +34,10 @@ from app.models import (
     Prepayment,
     RefreshToken,
     Repayment,
+    SignInFailure,
     User,
 )
-from app.services import applications, loans, prepayments, sessions
+from app.services import applications, loans, prepayments, sessions, users
 from app.services.lifecycle import lock_application, move
 from tests.factories import make_applicant, make_application, make_user
 
@@ -396,3 +398,41 @@ def test_two_refreshes_with_one_token_at_once_end_the_session(
     assert racer.outcome == "reused"
     with Session(engine) as session, pytest.raises(InvalidRefreshToken):
         sessions.rotate(session, next_token, now=NOW, settings=settings)
+
+
+@pytest.fixture
+def guessed_email(engine: Engine) -> Iterator[str]:
+    """An email with four failed sign-ins already: one more reaches the limit of five."""
+    email = "parallel-guesses@example.com"
+    with Session(engine) as session:
+        session.add_all([SignInFailure(email=email, failed_at=NOW) for _ in range(4)])
+        session.commit()
+    yield email
+    with Session(engine) as session:
+        session.execute(delete(SignInFailure).where(SignInFailure.email == email))
+        session.commit()
+
+
+def test_parallel_sign_ins_for_one_email_take_turns_at_the_limit(
+    engine: Engine, guessed_email: str, settings: Settings
+) -> None:
+    def second_guess(session: Session) -> str:
+        try:
+            users.sign_in(session, guessed_email, "second wrong guess", now=NOW, settings=settings)
+        except TooManySignInAttempts:
+            return "refused"
+        return "checked"
+
+    with Session(engine, expire_on_commit=False) as first:
+        # Take the email's lock, as a first attempt busy checking its password would.
+        first.execute(select(func.pg_advisory_xact_lock(func.hashtextextended(guessed_email, 0))))
+        racer = _Racer(engine, second_guess)
+        racer.start()
+        _wait_until_blocked(engine, waiter=racer.pid.get(timeout=10), holder=_backend_pid(first))
+
+        users.sign_in(first, guessed_email, "first wrong guess", now=NOW, settings=settings)
+        racer.join(timeout=10)
+
+    # The second guess waited, then counted the first one's failure: five, so refused. In
+    # parallel, both would have counted four and both passwords would have been checked.
+    assert racer.outcome == "refused"

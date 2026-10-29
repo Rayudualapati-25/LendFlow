@@ -21,7 +21,7 @@ def register(body: RegisterRequest, session: SessionDep) -> UserOut:
     return UserOut.model_validate(users.register_applicant(session, body.email, body.password))
 
 
-@router.post("/token", responses={401: {"model": Error}})
+@router.post("/token", responses={401: {"model": Error}, 429: {"model": Error}})
 def sign_in(
     form: Annotated[OAuth2PasswordRequestForm, Depends()],
     session: SessionDep,
@@ -29,8 +29,11 @@ def sign_in(
     now: NowDep,
 ) -> Token:
     """Exchange an email (sent as `username`) and password for an access token and a
-    refresh token."""
-    user = users.authenticate(session, normalize_email(form.username), form.password)
+    refresh token. Five failures for one email within 15 minutes lock it (429, with
+    Retry-After) until the oldest of them is 15 minutes old."""
+    user = users.sign_in(
+        session, normalize_email(form.username), form.password, now=now, settings=settings
+    )
     if user is None:
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED,

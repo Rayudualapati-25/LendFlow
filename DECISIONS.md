@@ -5,7 +5,7 @@ with hindsight. Entries are added in the pull request that makes the decision an
 when later work proves them right or wrong.
 
 Contents: [Service and tooling](#service-and-tooling) (D1–D7) ·
-[Data model](#data-model) (D8–D18) · [Authentication](#authentication) (D19–D24, D53) ·
+[Data model](#data-model) (D8–D18) · [Authentication](#authentication) (D19–D24, D53–D54) ·
 [Business rules](#business-rules) (D25–D27) · [Applications](#applications) (D28–D32) ·
 [Lifecycle](#lifecycle) (D33–D35) · [Credit decisions](#credit-decisions) (D36–D40) ·
 [Disbursal and repayment](#disbursal-and-repayment) (D41–D43, D50–D52) ·
@@ -261,8 +261,9 @@ Contents: [Service and tooling](#service-and-tooling) (D1–D7) ·
   learn which emails have accounts by timing the response.
 - **Why.** Account enumeration is the first step of credential stuffing.
 - **With hindsight.** Registration still reveals a taken email with a 409, the usual
-  trade-off when there is no email-verification step. Rate limiting on `/auth/token` is
-  missing and would be the next addition.
+  trade-off when there is no email-verification step. Failed sign-ins are now limited
+  per email (D54), and unknown emails are limited the same way, so the limit leaks
+  nothing either.
 
 ### D23. Applicants register themselves; underwriters cannot
 
@@ -314,6 +315,31 @@ Contents: [Service and tooling](#service-and-tooling) (D1–D7) ·
   is the usual fix. Logout does not end access tokens already issued: they lapse within
   30 minutes, which is why they are short. A `sid` claim checked against revoked
   sign-ins would end them at once, for one more lookup per request.
+
+### D54. Five failed sign-ins for an email in 15 minutes lock it, counted in the database
+
+- **Decision.** Each failed sign-in is stored with the email as typed (normalised) and
+  its time. While an email has five failures in the last 15 minutes, every sign-in for
+  it is refused with 429 `too_many_sign_in_attempts` and a `Retry-After` header, even with
+  the right password, until the oldest of them is 15 minutes old. Refused attempts are
+  not counted, so they do not extend the lock; a successful sign-in clears the email's
+  failures; failures older than the window are deleted as new ones arrive. Attempts for
+  one email take turns behind a transaction-scoped advisory lock on a hash of the email
+  (`pg_advisory_xact_lock`), so parallel guesses cannot all count the same four failures.
+  A test on two connections shows the second guess waiting and then being refused, and
+  fails if the lock is removed. Unknown emails are limited exactly like real ones.
+- **Alternative.** An in-memory or Redis rate limiter keyed by client IP, such as
+  slowapi; a lockout flag on the user row; a CAPTCHA after a few failures.
+- **Why.** The threat here is guessing one account's password, and a count per email
+  stops it wherever the guesses come from. The database is shared by every API instance,
+  unlike process memory, and is already there. A flag on `users` would exist only for
+  real accounts, so a 429 would reveal them, undoing D22. A sliding window lets the owner
+  back in within 15 minutes without asking support to unlock the account.
+- **With hindsight.** Anyone who knows a customer's email can lock them out for 15
+  minutes at a time, the usual price of limits per account. Password spraying (one guess
+  each against many accounts) is not slowed at all; that needs a limit per client IP at
+  the edge, where the real IP is known. At high volume the failures belong in Redis, with
+  keys that expire on their own.
 
 ## Business rules
 

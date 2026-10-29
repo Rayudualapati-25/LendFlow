@@ -313,6 +313,21 @@ class RefreshToken(Base):
     user: Mapped[User] = relationship()
 
 
+class SignInFailure(Base):
+    """A failed sign-in, kept only while it counts towards the limit for its email (D54).
+
+    The email is stored as typed (normalised), whether or not an account has it, so the
+    limit treats unknown emails exactly like real ones.
+    """
+
+    __tablename__ = "sign_in_failures"
+    __table_args__ = (Index("ix_sign_in_failures_email_failed_at", "email", "failed_at"),)
+
+    id: Mapped[IntPK]
+    email: Mapped[str] = mapped_column(String(254))
+    failed_at: Mapped[Timestamp] = mapped_column(index=True)
+
+
 class AuditLog(Base):
     """Append-only history of state changes, written in the same transaction as the change."""
 
