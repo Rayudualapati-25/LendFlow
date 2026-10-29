@@ -9,13 +9,13 @@ Built with FastAPI and PostgreSQL, test-first.
 
 ## Status
 
-MVP complete: every item below is built, tested and running in CI. Measured on this
-repository:
+The MVP and the four post-MVP extensions are complete: every item below is built, tested
+and running in CI. Measured on this repository:
 
 | Measure | Value |
 |---|---|
 | Endpoints | 26 |
-| Tests | 355, with 99.6% branch coverage |
+| Tests | 359, with 99.6% branch coverage |
 | Tables | 10 |
 | Seeded loans | 74 |
 
@@ -48,7 +48,7 @@ against the code, so they cannot drift.
 - [x] Prepayment and foreclosure, charging interest only for the days the money was owed
 - [x] Refresh tokens, rotated on every use, with reuse detection
 - [x] A limit on repeated failed sign-ins
-- [ ] A one-click live demo on Render
+- [x] A one-click live demo on Render (`render.yaml`), checked by CI
 
 ## How it works
 
@@ -148,6 +148,26 @@ the demo year ended, the API names the instalment to pay first.
 Create a real underwriter account with `docker compose exec api python -m app.cli
 create-underwriter EMAIL`; it prompts for the password without echoing it.
 
+## Live demo on Render
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/Rayudualapati-25/LendFlow)
+
+`render.yaml` describes the demo: the API built from the `Dockerfile` and a PostgreSQL 16
+database, both on Render's free plan in Singapore. The button creates both in a Render
+account. On first start the API migrates the database and loads the same demo data as
+`docker compose up`, signing tokens with a secret Render generates. Each push to `main`
+redeploys it; setting the service's Auto-Deploy to "After CI Checks Pass" deploys only green
+commits. CI checks `render.yaml` against Render's published schema.
+
+Know the free plan's limits before sharing the link:
+
+- The API sleeps after 15 minutes without requests; the next request wakes it in about a
+  minute.
+- A free database expires 30 days after it is created, and a workspace can have only one.
+  The API seeds a new, empty database on its next start.
+- The demo logins are public, so anyone can apply, approve or repay. Five wrong passwords
+  lock a login for 15 minutes.
+
 ## Development
 
 Requires Python 3.11+, [uv](https://docs.astral.sh/uv/) and PostgreSQL 16 for the tests.
@@ -165,16 +185,17 @@ The tests use `TEST_DATABASE_URL` (see `.env.example`) and default to the contai
 
 ```
 app/
-  domain/      pure business rules: EMI, eligibility, state machine, products
+  domain/      pure business rules: EMI, prepayment interest, eligibility, state machine
   services/    one function per use case, one transaction each
   routers/     HTTP endpoints
-  reports/     the two SQL reports, as .sql files
+  reports/     the three SQL reports, as .sql files
   models.py    SQLAlchemy tables
   seed.py      demo data, replayed through the services
   cli.py       operator commands
 migrations/    Alembic
 scripts/       container start-up and the end-to-end smoke test
 tests/         pytest: unit, API, concurrency, property-based and report tests
+render.yaml    the Render Blueprint for the live demo
 ```
 
 Design choices and their trade-offs are recorded in [DECISIONS.md](DECISIONS.md).

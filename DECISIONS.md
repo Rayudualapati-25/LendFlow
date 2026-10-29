@@ -10,7 +10,7 @@ Contents: [Service and tooling](#service-and-tooling) (D1–D7) ·
 [Lifecycle](#lifecycle) (D33–D35) · [Credit decisions](#credit-decisions) (D36–D40) ·
 [Disbursal and repayment](#disbursal-and-repayment) (D41–D43, D50–D52) ·
 [Reports](#reports) (D44–D46, D49) · [Demo data and operations](#demo-data-and-operations)
-(D47–D48)
+(D47–D48, D55)
 
 ## Service and tooling
 
@@ -768,3 +768,24 @@ Contents: [Service and tooling](#service-and-tooling) (D1–D7) ·
   standard input keeps it out of shell history and process listings.
 - **With hindsight.** In production, staff accounts belong in an identity provider (single
   sign-on with role claims) rather than in local passwords.
+
+### D55. The live demo is a Render Blueprint on the free plan
+
+- **Decision.** `render.yaml` declares the API, built from the same `Dockerfile` as
+  Compose, and a PostgreSQL 16 database reachable only from Render's private network,
+  both on the free plan in Singapore, the region nearest India. Render generates the
+  `JWT_SECRET`, so no secret is in the repository, and `SEED_DEMO_DATA` loads the demo
+  data on first start. Two small changes keep one image for Compose, CI and Render:
+  `scripts/start.sh` listens on `$PORT` (8000 by default), and `app.config` rewrites the
+  `postgres://` and `postgresql://` URLs that Render hands out to name the psycopg 3
+  driver. A "Deploy to Render" button in the README creates everything in the owner's
+  account, and a CI job checks `render.yaml` against Render's published schema.
+- **Alternative.** Fly.io or Railway, a virtual machine running Docker Compose, or paid
+  Render plans.
+- **Why.** A Blueprint is infrastructure as code that fits on one screen, and the button
+  needs no CLI or deploy credentials in CI. The free plan costs nothing for a demo.
+- **With hindsight.** The free plan shapes the demo: the API sleeps after 15 minutes idle
+  and takes about a minute to wake, and a free database expires after 30 days
+  ([Render](https://render.com/docs/free)). Paid plans remove both and add backups. A real
+  deployment would also drop `SEED_DEMO_DATA`, keep its secrets in a secret manager and
+  deploy only commits that pass CI.
